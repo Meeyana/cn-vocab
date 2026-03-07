@@ -132,24 +132,45 @@ export default function App() {
   }, [user]);
 
   // Lưu từ vựng lên Firebase
-  const saveWord = async (wordObj) => {
+  const saveWord = async (wordObj, contentItem = null, meanItem = null, contentIndex = 0, meanIndex = 0) => {
     if (!user) return alert("Vui lòng đăng nhập trước khi lưu từ vựng!");
 
-    if (!savedWords.find(w => w.id === wordObj.id)) {
+    // If saving specific meaning, create a unique ID based on the word ID and meaning indices
+    let saveId = wordObj.id;
+    let wordData = {
+      ...wordObj,
+      rating: 1,
+      createdAt: Date.now()
+    };
+
+    if (contentItem && meanItem) {
+      saveId = `${wordObj.id}_${contentIndex}_${meanIndex}`;
+
+      // Construct simplified payload for specific meaning
+      wordData = {
+        id: saveId,
+        originalId: wordObj.id,
+        word: wordObj.word,
+        pinyin: wordObj.pinyin || wordObj.zhuyin,
+        cn_vi: wordObj.cn_vi,
+        kind: contentItem.kind || '',
+        meaning: meanItem.mean || meanItem.explain,
+        examples: meanItem.examples || [],
+        rating: 1,
+        createdAt: Date.now(),
+        isSpecificMeaning: true // flag for backward compatibility
+      };
+    }
+
+    if (!savedWords.find(w => w.id === saveId)) {
       try {
-        const wordData = {
-          ...wordObj,
-          rating: 1,
-          createdAt: Date.now()
-        };
-        const wordRef = doc(db, "artifacts/china-vocab/users", user.uid, "vocabulary", wordObj.id.toString());
+        const wordRef = doc(db, "artifacts/china-vocab/users", user.uid, "vocabulary", saveId.toString());
         await setDoc(wordRef, wordData);
       } catch (err) {
         console.error("Lỗi khi lưu từ: ", err);
       }
     }
   };
-
   // Cập nhật điểm đánh giá cho từ (1-5 sao)
   const updateRating = async (id, newRating) => {
     if (!user) return;
@@ -207,6 +228,15 @@ export default function App() {
     msg.text = text;
     msg.lang = 'zh-CN';
     window.speechSynthesis.speak(msg);
+  };
+
+  const handleSearchWord = (word) => {
+    setSearchTerm(word);
+    // Kích hoạt form submit giả để gọi lại hàm search
+    setTimeout(() => {
+      const form = document.getElementById("searchForm");
+      if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }, 0);
   };
 
   // =========================================================================
@@ -369,17 +399,10 @@ export default function App() {
                   <WordCard
                     key={item.id || index}
                     item={item}
-                    isSaved={!!savedWords.find(w => w.id === item.id)}
-                    onSave={() => saveWord(item)}
+                    savedWords={savedWords} // Pass savedWords for checking specific meanings
+                    onSave={(itemToSave, contentBlock, meanObj, contentIdx, meanIdx) => saveWord(itemToSave, contentBlock, meanObj, contentIdx, meanIdx)}
                     onPlay={() => playAudio(item.word)}
-                    onSearchWord={(word) => {
-                      setSearchTerm(word);
-                      // Kích hoạt form submit giả để gọi lại hàm search
-                      setTimeout(() => {
-                        const form = document.getElementById("searchForm");
-                        if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                      }, 0);
-                    }}
+                    onSearchWord={handleSearchWord}
                   />
                 ))}
               </div>
@@ -526,7 +549,8 @@ export default function App() {
                     if (searchStr.length > 0) {
                       const wordText = removeTones(w.word);
                       const pinyinText = removeTones(w.pinyin || w.zhuyin);
-                      const vietText = removeTones(w.cn_vi);
+                      // For specific meanings, search in 'meaning' field, otherwise in 'cn_vi'
+                      const vietText = removeTones(w.isSpecificMeaning ? w.meaning : w.cn_vi);
 
                       passSearch = wordText.includes(searchStr) ||
                         pinyinText.includes(searchStr) ||
@@ -543,11 +567,11 @@ export default function App() {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {filteredWords.slice(0, visibleCount).map((item) => {
-                        // Lấy định nghĩa đầu tiên làm chính
+                        // Lấy định nghĩa đầu tiên làm chính (for old structure)
                         const firstContent = item.content?.[0];
                         const firstMean = firstContent?.means?.[0];
-                        const mainMeaning = firstMean?.mean || firstMean?.explain || item.cn_vi;
-                        const examples = firstMean?.examples || [];
+                        const mainMeaning = item.isSpecificMeaning ? item.meaning : (firstMean?.mean || firstMean?.explain || item.cn_vi);
+                        const examples = item.isSpecificMeaning ? item.examples : (firstMean?.examples || []);
                         const isExpanded = !!expandedExamples[item.id];
 
                         return (
@@ -601,7 +625,15 @@ export default function App() {
                                     {mainMeaning}
                                   </h3>
 
-                                  {firstMean?.explain && firstMean?.mean !== firstMean?.explain && (
+                                  {/* If it's a specific meaning, show the word kind */}
+                                  {item.isSpecificMeaning && item.kind && (
+                                    <div className="mt-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                      Từ loại: {item.kind}
+                                    </div>
+                                  )}
+
+                                  {/* Only show explain if it's not a specific meaning or if explain is different from meaning */}
+                                  {!item.isSpecificMeaning && firstMean?.explain && firstMean?.mean !== firstMean?.explain && (
                                     <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors">
                                       {firstMean.explain}
                                     </div>
@@ -644,7 +676,7 @@ export default function App() {
 // =========================================================================
 // COMPONENT THẺ TỪ VỰNG
 // =========================================================================
-function WordCard({ item, isSaved, onSave, onPlay, onSearchWord }) {
+function WordCard({ item, savedWords, onSave, onPlay, onSearchWord }) {
   // Lấy định nghĩa đầu tiên làm chính
   const firstContent = item.content?.[0];
   const firstMean = firstContent?.means?.[0];
@@ -673,16 +705,7 @@ function WordCard({ item, isSaved, onSave, onPlay, onSearchWord }) {
           </div>
         </div>
 
-        <button
-          onClick={onSave}
-          disabled={isSaved}
-          className={`flex items-center gap-1 px-4 py-2 rounded-xl font-medium transition-colors ${isSaved
-            ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800/50 cursor-default shadow-sm'
-            : 'bg-white dark:bg-gray-800 border-2 border-indigo-100 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 shadow-sm hover:shadow'
-            }`}
-        >
-          {isSaved ? <><Check size={18} /> Đã lưu</> : <><Plus size={18} /> Lưu từ</>}
-        </button>
+        {/* Remove global save button since we save per meaning now */}
       </div>
 
       {/* Hán Việt */}
@@ -703,44 +726,63 @@ function WordCard({ item, isSaved, onSave, onPlay, onSearchWord }) {
               </div>
             )}
 
-            {contentBlock.means?.map((meanObj, mIdx) => (
-              <div key={mIdx} className="mb-5 last:mb-0 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
-                <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 flex items-start gap-2 mb-2 transition-colors">
-                  <span className="text-indigo-500 dark:text-indigo-400 mt-1.5 transition-colors">•</span>
-                  <span>{meanObj.mean || meanObj.explain}</span>
-                </div>
+            {contentBlock.means?.map((meanObj, mIdx) => {
+              const meaningId = `${item.id}_${idx}_${mIdx}`;
+              const isMeaningSaved = savedWords.some(w => w.id === meaningId);
 
-                {/* Lời giải thích tiếng Trung (nếu có) */}
-                {meanObj.explain && meanObj.mean !== meanObj.explain && (
-                  <div className="ml-6 mt-2 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-300 text-sm border-l-4 border-gray-400 dark:border-gray-600 transition-colors">
-                    <span className="font-semibold text-gray-800 dark:text-gray-200 block mb-1 transition-colors">Giải thích (Tiếng Trung):</span>
-                    {meanObj.explain}
+              return (
+                <div key={mIdx} className="mb-5 last:mb-0 bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors relative group">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 flex items-start gap-2 mb-2 transition-colors flex-1">
+                      <span className="text-indigo-500 dark:text-indigo-400 mt-1.5 transition-colors">•</span>
+                      <span>{meanObj.mean || meanObj.explain}</span>
+                    </div>
+
+                    {/* Nút Save riêng cho từng Nghĩa */}
+                    <button
+                      onClick={() => onSave(item, contentBlock, meanObj, idx, mIdx)}
+                      disabled={isMeaningSaved}
+                      className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${isMeaningSaved
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800/50 cursor-default shadow-sm'
+                        : 'bg-white dark:bg-gray-800 border border-indigo-100 dark:border-indigo-800/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 shadow-sm hover:shadow'
+                        }`}
+                    >
+                      {isMeaningSaved ? <><Check size={16} /> Đã lưu</> : <><Plus size={16} /> Lưu nghĩa này</>}
+                    </button>
                   </div>
-                )}
 
-                {/* Danh sách ví dụ */}
-                {meanObj.examples?.length > 0 && (
-                  <div className="mt-4 ml-6 space-y-3 border-l-2 border-indigo-200 dark:border-indigo-800/50 pl-4 transition-colors">
-                    <div className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 transition-colors">Ví dụ:</div>
-                    {meanObj.examples.map((ex, exIdx) => {
-                      const exContent = ex.content || ex.e;
-                      const exPinyin = ex.pinyin || ex.p;
-                      const exMean = ex.mean || ex.m;
+                  {/* Lời giải thích tiếng Trung (nếu có) */}
+                  {meanObj.explain && meanObj.mean !== meanObj.explain && (
+                    <div className="ml-6 mt-2 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-300 text-sm border-l-4 border-gray-400 dark:border-gray-600 transition-colors">
+                      <span className="font-semibold text-gray-800 dark:text-gray-200 block mb-1 transition-colors">Giải thích (Tiếng Trung):</span>
+                      {meanObj.explain}
+                    </div>
+                  )}
 
-                      return (
-                        <div key={exIdx} className="text-sm pb-3 border-b border-gray-50 dark:border-gray-700 last:border-0 last:pb-0 transition-colors">
-                          <div className="text-gray-900 dark:text-gray-100 font-medium text-base mb-1 transition-colors">{exContent}</div>
-                          {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
-                          <div className="text-teal-800 dark:text-teal-300 italic border-l-2 border-teal-300 dark:border-teal-700/50 pl-3 bg-teal-50/50 dark:bg-teal-900/20 py-1.5 px-2 rounded-r transition-colors">
-                            {exMean}
+                  {/* Danh sách ví dụ */}
+                  {meanObj.examples?.length > 0 && (
+                    <div className="mt-4 ml-6 space-y-3 border-l-2 border-indigo-200 dark:border-indigo-800/50 pl-4 transition-colors">
+                      <div className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 transition-colors">Ví dụ:</div>
+                      {meanObj.examples.map((ex, exIdx) => {
+                        const exContent = ex.content || ex.e;
+                        const exPinyin = ex.pinyin || ex.p;
+                        const exMean = ex.mean || ex.m;
+
+                        return (
+                          <div key={exIdx} className="text-sm pb-3 border-b border-gray-50 dark:border-gray-700 last:border-0 last:pb-0 transition-colors">
+                            <div className="text-gray-900 dark:text-gray-100 font-medium text-base mb-1 transition-colors">{exContent}</div>
+                            {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
+                            <div className="text-teal-800 dark:text-teal-300 italic border-l-2 border-teal-300 dark:border-teal-700/50 pl-3 bg-teal-50/50 dark:bg-teal-900/20 py-1.5 px-2 rounded-r transition-colors">
+                              {exMean}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {/* Mục Ngữ pháp (Structs) */}
             {contentBlock.structs?.length > 0 && (
@@ -800,7 +842,7 @@ function WordCard({ item, isSaved, onSave, onPlay, onSearchWord }) {
 
       {/* TỪ GHÉP / ĐỀ XUẤT */}
       {compounds.length > 0 && (
-        <div className="pt-4 border-t border-dashed border-gray-200 dark:border-gray-700 mt-6 mb-6 transition-colors">
+        <div className="pt-4 border-t-dashed border-gray-200 dark:border-gray-700 mt-6 mb-6 transition-colors">
           <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 transition-colors">Từ Ghép Thường Gặp</h4>
           <div className="flex flex-wrap gap-2">
             {compounds.map((c, i) => (
@@ -959,6 +1001,9 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
   const [pendingUpdates, setPendingUpdates] = useState({});
   const [isSavingOnExit, setIsSavingOnExit] = useState(false);
 
+  // State for Review Summary
+  const [sessionResults, setSessionResults] = useState([]); // Array of { wordObj, isCorrect }
+
   // Initialize queue on mount
   useEffect(() => {
 
@@ -990,6 +1035,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
     }
   }, [queue, currentQuestion, showResult]);
 
+  // Random 1 từ trong danh sách savedWords
   const generateQuestion = (word) => {
     try {
       console.log("Đang tạo câu hỏi cho từ:", word);
@@ -998,7 +1044,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
       // Đã gỡ bỏ Question Type 3 (Giải nghĩa bề mặt Hán - Hán) theo yêu cầu User
 
       // Check if examples exist
-      const hasExample = word.content?.[0]?.means?.[0]?.examples?.length > 0;
+      const hasExample = word.isSpecificMeaning ? word.examples?.length > 0 : word.content?.[0]?.means?.[0]?.examples?.length > 0;
       if (hasExample) availableTypes.push(0); // 0: Fill blank
 
       const type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
@@ -1008,14 +1054,28 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
       let finalOptions = [word, ...distractorWords].sort(() => 0.5 - Math.random());
 
       if (type === 0) {
-        const examples = word.content[0].means[0].examples;
-        const ex = examples[Math.floor(Math.random() * examples.length)];
-        const exContent = ex.content || ex.e || "";
-        // Sanitize word for regex
-        const safeWord = word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(safeWord, "g");
-        baseQuestion.maskedEx = exContent.replace(regex, "___");
-        baseQuestion.exMean = ex.mean || ex.m || "Không có giải nghĩa ví dụ";
+        // Safe check for examples
+        const examples = word.isSpecificMeaning ? word.examples : word.content?.[0]?.means?.[0]?.examples;
+        if (examples && examples.length > 0) {
+          const ex = examples[Math.floor(Math.random() * examples.length)];
+          const exContent = ex.content || ex.e || "";
+
+          if (exContent) {
+            // Sanitize word for regex
+            const safeWord = word.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(safeWord, "g");
+            baseQuestion.maskedEx = exContent.replace(regex, "___");
+            baseQuestion.exMean = ex.mean || ex.m || "Không có giải nghĩa ví dụ";
+          } else {
+            // Fallback if example content is somehow missing
+            baseQuestion.maskedEx = "___";
+            baseQuestion.exMean = "Không có giải nghĩa ví dụ";
+          }
+        } else {
+          // Should not happen since we check hasExample above, but just in case
+          baseQuestion.maskedEx = "___";
+          baseQuestion.exMean = "Không có giải nghĩa ví dụ";
+        }
       }
 
       setOptions(finalOptions);
@@ -1064,8 +1124,19 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
 
     if (isCorrect) {
       setTotalReviewed(prev => prev + 1);
+
+      // Track for summary if not already tracked
+      if (!sessionResults.some(res => res.wordObj.id === currentQuestion.wordObj.id)) {
+        setSessionResults(prev => [...prev, { wordObj: currentQuestion.wordObj, isCorrect: true }]);
+      }
+
       setQueue(prev => prev.slice(1));
     } else {
+      // Track as wrong for summary if not already tracked
+      if (!sessionResults.some(res => res.wordObj.id === currentQuestion.wordObj.id)) {
+        setSessionResults(prev => [...prev, { wordObj: currentQuestion.wordObj, isCorrect: false }]);
+      }
+
       setQueue(prev => {
         const newQueue = [...prev];
         if (newQueue.length > 0) {
@@ -1152,19 +1223,61 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
   }
 
   if (isFinished) {
+    const correctCount = sessionResults.filter(r => r.isCorrect).length;
+    const totalCount = sessionResults.length;
+
     return (
-      <div className="bg-white p-10 rounded-2xl shadow-sm text-center max-w-lg mx-auto mt-10">
-        <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Check size={48} className="text-green-600" />
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-lg text-center max-w-2xl mx-auto mt-10 border border-gray-100 dark:border-gray-700 transition-colors duration-300">
+        <div className="w-24 h-24 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6 text-green-600 dark:text-green-400">
+          <Check size={48} />
         </div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Tuyệt Vời!</h2>
-        <p className="text-gray-600 mb-6">Bạn đã hoàn thành phiên ôn tập hoặc đã thuộc lòng mọi từ vựng (chạm mốc 5 sao).</p>
+        <h2 className="text-3xl font-black text-gray-900 dark:text-gray-100 mb-2 transition-colors">Tuyệt Vời!</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium transition-colors">
+          Báo cáo tiến độ ôn tập của bạn: <strong className="text-indigo-600 dark:text-indigo-400">{correctCount}/{totalCount}</strong> từ trả lời đúng.
+        </p>
+
+        {/* Danh sách từ vựng đã ôn */}
+        {totalCount > 0 && (
+          <div className="text-left bg-gray-50 dark:bg-gray-900/50 rounded-2xl p-4 mb-8 border border-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto custom-scrollbar">
+            <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 px-2">Chi tiết phiên ôn tập</h3>
+            <div className="space-y-2">
+              {sessionResults.map((res, idx) => {
+                const wObj = res.wordObj;
+                const meaningDisplay = wObj.isSpecificMeaning
+                  ? wObj.meaning
+                  : (wObj.content?.[0] ? wObj.content[0].means[0].mean || wObj.content[0].means[0].explain : wObj.cn_vi);
+
+                return (
+                  <div key={idx} className={`p-3 rounded-xl flex items-center justify-between border ${res.isCorrect ? 'bg-green-50/50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30' : 'bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30'} transition-colors`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${res.isCorrect ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'}`}>
+                        {res.isCorrect ? <Check size={16} /> : <span className="font-bold cursor-default select-none">✕</span>}
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-900 dark:text-gray-100">{wObj.word} <span className="font-normal text-sm text-gray-500 dark:text-gray-400 ml-1">[{wObj.pinyin || wObj.zhuyin}]</span></div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px] sm:max-w-xs">{meaningDisplay}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <button
           onClick={saveAndExit}
           disabled={isSavingOnExit}
-          className="bg-red-600 text-white font-medium px-6 py-3 rounded-xl hover:bg-red-700 transition flex items-center justify-center mx-auto gap-2"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg px-8 py-3.5 rounded-xl transition-all shadow-lg hover:-translate-y-0.5 disabled:opacity-70 flex items-center justify-center mx-auto gap-2"
         >
-          {isSavingOnExit ? <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div> : "Lưu Kết Quả & Trở về"}
+          {isSavingOnExit ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+          ) : (
+            <>
+              <LibraryBig size={20} />
+              Trở Về Sổ Tay
+            </>
+          )}
         </button>
       </div>
     );
@@ -1181,9 +1294,9 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
     <div className="max-w-2xl mx-auto mt-2">
       <div className="mb-2 flex justify-between items-center px-2">
         <button
-          onClick={saveAndExit}
+          onClick={() => setIsFinished(true)}
           disabled={isSavingOnExit}
-          title="Lưu tiến độ & Thoát"
+          title="Kết thúc sớm & Xem báo cáo"
           className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-500 dark:hover:text-red-400 px-4 py-2 rounded-xl flex items-center gap-2 transition-colors border border-transparent dark:border-gray-700 shadow-sm cursor-pointer font-bold font-sm"
         >
           <LogOut size={18} />
@@ -1236,7 +1349,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
               // Ẩn Pinyin luôn, chỉ để chữ Hán cho User khó đoán
               optSubContent = null;
             } else if (type === 2) {
-              optContent = opt.content?.[0]?.means?.[0]?.mean || opt.cn_vi || "Chưa có nghĩa";
+              optContent = opt.isSpecificMeaning ? opt.meaning : (opt.content?.[0]?.means?.[0]?.mean || opt.cn_vi || "Chưa có nghĩa");
               optSubContent = null;
             }
 
@@ -1274,22 +1387,45 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                 <button onClick={() => playAudio(wordObj.word)} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border border-gray-200 dark:border-gray-700 rounded-full p-1.5 bg-white dark:bg-gray-800 shadow-sm"><Volume2 size={16} /></button>
               </div>
 
-              <p className="text-gray-800 dark:text-gray-200 font-bold mb-3 text-lg capitalize transition-colors">
-                {wordObj.content?.[0]?.means?.[0]?.mean || wordObj.content?.[0]?.means?.[0]?.explain || wordObj.cn_vi}
-              </p>
+              <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 transition-colors">
+                {/* Backward compatibility: check if isSpecificMeaning exists, otherwise fallback to old structure */}
+                {wordObj.isSpecificMeaning
+                  ? wordObj.meaning
+                  : (wordObj.content?.[0] ? wordObj.content[0].means[0].mean || wordObj.content[0].means[0].explain : "Không có định nghĩa")}
+              </div>
 
-              {/* Example */}
-              {wordObj.content?.[0]?.means?.[0]?.examples?.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors">
-                  <div className="flex gap-2 text-gray-700 dark:text-gray-300 transition-colors">
-                    <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
-                    <div>
-                      <div className="font-medium text-[15px] leading-relaxed">{wordObj.content[0].means[0].examples[0].content || wordObj.content[0].means[0].examples[0].e}</div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">{wordObj.content[0].means[0].examples[0].mean || wordObj.content[0].means[0].examples[0].m}</div>
-                    </div>
-                  </div>
+              {/* If it's a specific meaning, show the word kind */}
+              {wordObj.isSpecificMeaning && wordObj.kind && (
+                <div className="mt-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                  Từ loại: {wordObj.kind}
                 </div>
               )}
+
+              {/* Example */}
+              {(wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content?.[0]?.means?.[0]?.examples)?.length > 0 && (() => {
+                const examplesList = wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content[0].means[0].examples;
+                // Use a seeded or consistent random based on the wordObj.id to prevent flickering during re-renders
+                // We'll just pick a random one inline for now, but in reality a purely random string might change if react re-renders. 
+                // Since this is inside a mapped/static list of options we want to just pick one safely.
+                const randomExIndex = Math.floor(Math.random() * examplesList.length);
+                const ex = examplesList[randomExIndex];
+
+                return (
+                  <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors">
+                    <div className="flex gap-2 text-gray-700 dark:text-gray-300 transition-colors">
+                      <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
+                      <div>
+                        <div className="font-medium text-[15px] leading-relaxed">
+                          {ex.content || ex.e}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">
+                          {ex.mean || ex.m}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* ĐIỀU KHIỂN PAUSE / RESUME */}
