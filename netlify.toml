@@ -1,0 +1,20 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Chỉ định thư mục chứa functions
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Điều hướng /api/search về function search.cjs
+[[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/search"
+  status = 200
+
+# Điều hướng /api/suggest về function suggest.cjs
+[[redirects]]
+  from = "/api/suggest"
+  to = "/.netlify/functions/suggest"
+  status = 200
