@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2 } from 'lucide-react';
+import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2, Edit3 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -36,6 +36,7 @@ export default function App() {
   const [savedWords, setSavedWords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('search'); // 'search' | 'saved'
+  const [editingRatingId, setEditingRatingId] = useState(null); // Trạng thái chỉnh sửa số sao
 
   // Trạng thái cho tính năng Gợi ý Trực tiếp
   const [suggestions, setSuggestions] = useState([]);
@@ -180,6 +181,8 @@ export default function App() {
       await updateDoc(wordRef, { rating: newRating });
     } catch (err) {
       console.error("Lỗi khi cập nhật hạng sao:", err);
+    } finally {
+      setEditingRatingId(null);
     }
   };
 
@@ -611,15 +614,21 @@ export default function App() {
                               <div className="flex flex-col items-end gap-1">
                                 {/* Vùng Top Right: Đánh giá Sao */}
                                 <div className="flex items-center gap-2 mt-0.5">
-                                  <div className="flex gap-0.5">
+                                  <div className="flex gap-0.5 relative group/stars">
                                     {[1, 2, 3, 4, 5].map((starIdx) => (
                                       <Star
                                         key={starIdx}
                                         size={14}
-                                        onClick={() => updateRating(item.id, starIdx)}
-                                        className={starIdx <= (item.rating || 1) ? "fill-yellow-400 text-yellow-400 cursor-pointer" : "text-gray-200 dark:text-gray-600 cursor-pointer hover:text-yellow-300 transition-colors"}
+                                        onClick={() => editingRatingId === item.id ? updateRating(item.id, starIdx) : null}
+                                        className={starIdx <= (item.rating || 1)
+                                          ? "fill-yellow-400 text-yellow-400 " + (editingRatingId === item.id ? "cursor-pointer" : "cursor-default")
+                                          : "text-gray-200 dark:text-gray-600 " + (editingRatingId === item.id ? "cursor-pointer hover:text-yellow-300 transition-colors" : "cursor-default")}
                                       />
                                     ))}
+                                    {/* Chỉ thị đang chỉnh sửa (Tùy chọn) */}
+                                    {editingRatingId === item.id && (
+                                      <span className="absolute -top-5 right-0 text-[10px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded shadow-sm whitespace-nowrap animate-fade-in">Chọn sao...</span>
+                                    )}
                                   </div>
                                 </div>
 
@@ -650,22 +659,31 @@ export default function App() {
                                       <h3 className="text-base font-bold text-gray-900 dark:text-gray-200 mb-0.5 leading-snug capitalize text-indigo-700 dark:text-indigo-300 transition-colors">
                                         {mainMeaning}
                                       </h3>
-
-                                      {/* Only show explain if explain is different from meaning */}
-                                      {showExplain && (
-                                        <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors">
-                                          {explainText}
-                                        </div>
-                                      )}
                                     </div>
-                                    <button
-                                      onClick={() => deleteWord(item.id)}
-                                      className="ml-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors self-start border border-transparent hover:border-red-100 dark:hover:border-red-800/50"
-                                      title="Xóa từ này"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                                    <div className="flex items-center gap-1 self-start ml-2 mt-0">
+                                      <button
+                                        onClick={() => setEditingRatingId(editingRatingId === item.id ? null : item.id)}
+                                        className={`p-1.5 rounded-full transition-colors border max-h-[30px] flex items-center justify-center ${editingRatingId === item.id ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800' : 'text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 border-transparent hover:border-gray-200 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                                        title={editingRatingId === item.id ? "Hủy chỉnh sửa sao" : "Chỉnh sửa số sao"}
+                                      >
+                                        <Edit3 size={15} />
+                                      </button>
+
+                                      <button
+                                        onClick={() => deleteWord(item.id)}
+                                        className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors border border-transparent hover:border-red-100 dark:hover:border-red-800/50 max-h-[30px] flex items-center justify-center"
+                                        title="Xóa từ này"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
                                   </div>
+                                  {/* Only show explain if explain is different from meaning, now full width */}
+                                  {showExplain && (
+                                    <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors w-full">
+                                      {explainText}
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* 1 Ví dụ duy nhất */}
