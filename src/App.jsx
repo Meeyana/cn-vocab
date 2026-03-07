@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon } from 'lucide-react';
+import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import './index.css';
 
 // =========================================================================
@@ -155,6 +155,7 @@ export default function App() {
         cn_vi: wordObj.cn_vi,
         kind: contentItem.kind || '',
         meaning: meanItem.mean || meanItem.explain,
+        explain: meanItem.explain || '',
         examples: meanItem.examples || [],
         rating: 1,
         createdAt: Date.now(),
@@ -179,6 +180,23 @@ export default function App() {
       await updateDoc(wordRef, { rating: newRating });
     } catch (err) {
       console.error("Lỗi khi cập nhật hạng sao:", err);
+    }
+  };
+
+  // Nút Xoá từ
+  const deleteWord = async (wordId) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa từ vựng này khỏi sổ tay? Thao tác này không thể hoàn tác.')) {
+      try {
+        const wordRef = doc(db, "artifacts/china-vocab/users", user.uid, "vocabulary", wordId.toString());
+        await deleteDoc(wordRef);
+
+        // Cập nhật lại state danh sách từ
+        setSavedWords(prev => prev.filter(w => w.id !== wordId));
+        console.log(`Đã xóa từ ${wordId}`);
+      } catch (error) {
+        console.error('Lỗi khi xóa từ:', error);
+        alert('Không thể xóa từ này. Vui lòng thử lại.');
+      }
     }
   };
 
@@ -565,23 +583,28 @@ export default function App() {
                   }
 
                   return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                       {filteredWords.slice(0, visibleCount).map((item) => {
                         // Lấy định nghĩa đầu tiên làm chính (for old structure)
                         const firstContent = item.content?.[0];
                         const firstMean = firstContent?.means?.[0];
                         const mainMeaning = item.isSpecificMeaning ? item.meaning : (firstMean?.mean || firstMean?.explain || item.cn_vi);
                         const examples = item.isSpecificMeaning ? item.examples : (firstMean?.examples || []);
+                        const wordKind = item.isSpecificMeaning ? item.kind : firstContent?.kind;
+                        const explainText = item.isSpecificMeaning ? item.explain : firstMean?.explain;
+                        const showExplain = explainText && explainText !== mainMeaning;
                         const isExpanded = !!expandedExamples[item.id];
 
                         return (
-                          <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative group flex flex-col h-full hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                          <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative group flex flex-col h-fit hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
                             {/* Header chính: Chữ Hán, Pinyin nằm trái; Các nút nằm phải */}
                             <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 pb-2 mb-2 transition-colors">
                               <div className="flex flex-col mt-0.5">
                                 <div className="flex items-baseline gap-2">
                                   <span className="text-2xl font-bold text-gray-800 dark:text-gray-100 transition-colors">{item.word}</span>
-                                  <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">[{item.pinyin || item.zhuyin}]</span>
+                                  <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
+                                    [{item.pinyin || item.zhuyin}] {wordKind ? `(${wordKind})` : ''}
+                                  </span>
                                 </div>
                               </div>
 
@@ -621,23 +644,28 @@ export default function App() {
                               <div className="mt-1 space-y-3 pt-2 transition-colors">
                                 {/* Nghĩa Tiếng Việt & Giải thích */}
                                 <div>
-                                  <h3 className="text-base font-bold text-gray-900 dark:text-gray-200 mb-0.5 leading-snug capitalize text-indigo-700 dark:text-indigo-300 transition-colors">
-                                    {mainMeaning}
-                                  </h3>
+                                  {/* Tùy chọn Xóa từ (hiển thị cùng lúc với phần Nghĩa) */}
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                      <h3 className="text-base font-bold text-gray-900 dark:text-gray-200 mb-0.5 leading-snug capitalize text-indigo-700 dark:text-indigo-300 transition-colors">
+                                        {mainMeaning}
+                                      </h3>
 
-                                  {/* If it's a specific meaning, show the word kind */}
-                                  {item.isSpecificMeaning && item.kind && (
-                                    <div className="mt-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                                      Từ loại: {item.kind}
+                                      {/* Only show explain if explain is different from meaning */}
+                                      {showExplain && (
+                                        <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors">
+                                          {explainText}
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-
-                                  {/* Only show explain if it's not a specific meaning or if explain is different from meaning */}
-                                  {!item.isSpecificMeaning && firstMean?.explain && firstMean?.mean !== firstMean?.explain && (
-                                    <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors">
-                                      {firstMean.explain}
-                                    </div>
-                                  )}
+                                    <button
+                                      onClick={() => deleteWord(item.id)}
+                                      className="ml-2 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors self-start border border-transparent hover:border-red-100 dark:hover:border-red-800/50"
+                                      title="Xóa từ này"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
                                 </div>
 
                                 {/* 1 Ví dụ duy nhất */}
@@ -1377,81 +1405,89 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
         </div>
 
         {/* CHI TIẾT ĐÁP ÁN (Chỉ hiển thị khi có kết quả) */}
-        {showResult && (
-          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 animate-fade-in text-left transition-colors">
-            <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 transition-colors">Chi tiết đáp án</h3>
-            <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 mb-4 transition-colors">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{wordObj.word}</span>
-                <span className="text-lg font-medium text-indigo-600 dark:text-indigo-400 transition-colors">[{wordObj.pinyin || wordObj.zhuyin}]</span>
-                <button onClick={() => playAudio(wordObj.word)} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border border-gray-200 dark:border-gray-700 rounded-full p-1.5 bg-white dark:bg-gray-800 shadow-sm"><Volume2 size={16} /></button>
-              </div>
+        {showResult && (() => {
+          const reviewWordKind = wordObj.isSpecificMeaning ? wordObj.kind : wordObj.content?.[0]?.kind;
+          const reviewExplainText = wordObj.isSpecificMeaning ? wordObj.explain : wordObj.content?.[0]?.means?.[0]?.explain;
+          const reviewMainMeaning = wordObj.isSpecificMeaning
+            ? wordObj.meaning
+            : (wordObj.content?.[0] ? wordObj.content[0].means[0].mean || wordObj.content[0].means[0].explain : "Không có định nghĩa");
+          const showReviewExplain = reviewExplainText && reviewExplainText !== reviewMainMeaning;
 
-              <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 transition-colors">
-                {/* Backward compatibility: check if isSpecificMeaning exists, otherwise fallback to old structure */}
-                {wordObj.isSpecificMeaning
-                  ? wordObj.meaning
-                  : (wordObj.content?.[0] ? wordObj.content[0].means[0].mean || wordObj.content[0].means[0].explain : "Không có định nghĩa")}
-              </div>
-
-              {/* If it's a specific meaning, show the word kind */}
-              {wordObj.isSpecificMeaning && wordObj.kind && (
-                <div className="mt-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                  Từ loại: {wordObj.kind}
+          return (
+            <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 animate-fade-in text-left transition-colors">
+              <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 transition-colors">Chi tiết đáp án</h3>
+              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 mb-4 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-3xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{wordObj.word}</span>
+                  <span className="text-lg font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
+                    [{wordObj.pinyin || wordObj.zhuyin}] {reviewWordKind ? `(${reviewWordKind})` : ''}
+                  </span>
+                  <button onClick={() => playAudio(wordObj.word)} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border border-gray-200 dark:border-gray-700 rounded-full p-1.5 bg-white dark:bg-gray-800 shadow-sm"><Volume2 size={16} /></button>
                 </div>
-              )}
 
-              {/* Example */}
-              {(wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content?.[0]?.means?.[0]?.examples)?.length > 0 && (() => {
-                const examplesList = wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content[0].means[0].examples;
-                // Use a seeded or consistent random based on the wordObj.id to prevent flickering during re-renders
-                // We'll just pick a random one inline for now, but in reality a purely random string might change if react re-renders. 
-                // Since this is inside a mapped/static list of options we want to just pick one safely.
-                const randomExIndex = Math.floor(Math.random() * examplesList.length);
-                const ex = examplesList[randomExIndex];
+                <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 transition-colors">
+                  {reviewMainMeaning}
+                </div>
 
-                return (
-                  <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors">
-                    <div className="flex gap-2 text-gray-700 dark:text-gray-300 transition-colors">
-                      <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
-                      <div>
-                        <div className="font-medium text-[15px] leading-relaxed">
-                          {ex.content || ex.e}
-                        </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">
-                          {ex.mean || ex.m}
+                {/* Only show explain if explain is different from meaning */}
+                {showReviewExplain && (
+                  <div className="mt-2 p-2.5 bg-white dark:bg-gray-800 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors">
+                    {reviewExplainText}
+                  </div>
+                )}
+
+                {/* Example */}
+                {(wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content?.[0]?.means?.[0]?.examples)?.length > 0 && (() => {
+                  const examplesList = wordObj.isSpecificMeaning ? wordObj.examples : wordObj.content[0].means[0].examples;
+                  // Use a seeded or consistent random based on the wordObj.id to prevent flickering during re-renders
+                  // We'll just pick a random one inline for now, but in reality a purely random string might change if react re-renders. 
+                  // Since this is inside a mapped/static list of options we want to just pick one safely.
+                  const randomExIndex = Math.floor(Math.random() * examplesList.length);
+                  const ex = examplesList[randomExIndex];
+
+                  return (
+                    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors">
+                      <div className="flex gap-2 text-gray-700 dark:text-gray-300 transition-colors">
+                        <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
+                        <div>
+                          <div className="font-medium text-[15px] leading-relaxed">
+                            {ex.content || ex.e}
+                          </div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">
+                            {ex.mean || ex.m}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* ĐIỀU KHIỂN PAUSE / RESUME */}
-            <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 mt-2 transition-colors">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setIsPaused(!isPaused)}
-                  className={`flex items-center justify-center w-10 h-10 rounded-full transition-all shadow-sm ${isPaused ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 shadow-inner' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 border border-transparent dark:border-gray-600'}`}
-                  title={isPaused ? "Tiếp tục đếm ngược" : "Tạm dừng đếm ngược"}
-                >
-                  {isPaused ? <Play size={18} className="ml-1" /> : <Pause size={18} />}
-                </button>
-                <div className="text-[13px] font-medium hidden sm:block">
-                  {isPaused ? <span className="text-orange-600 dark:text-orange-400 animate-pulse">Đã tạm dừng bộ đếm</span> : null}
-                </div>
+                  );
+                })()}
               </div>
 
-              <button
-                onClick={handleNextQuestion}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition hover:shadow-lg hover:-translate-y-0.5"
-              >
-                Câu tiếp <ChevronRight size={18} />
-              </button>
+              {/* ĐIỀU KHIỂN PAUSE / RESUME */}
+              <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 mt-2 transition-colors">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setIsPaused(!isPaused)}
+                    className={`flex items-center justify-center w-10 h-10 rounded-full transition-all shadow-sm ${isPaused ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 shadow-inner' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 border border-transparent dark:border-gray-600'}`}
+                    title={isPaused ? "Tiếp tục đếm ngược" : "Tạm dừng đếm ngược"}
+                  >
+                    {isPaused ? <Play size={18} className="ml-1" /> : <Pause size={18} />}
+                  </button>
+                  <div className="text-[13px] font-medium hidden sm:block">
+                    {isPaused ? <span className="text-orange-600 dark:text-orange-400 animate-pulse">Đã tạm dừng bộ đếm</span> : null}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleNextQuestion}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition hover:shadow-lg hover:-translate-y-0.5"
+                >
+                  Câu tiếp <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
 
