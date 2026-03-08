@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2, Edit3 } from 'lucide-react';
+import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2, Edit3, Eye, EyeOff } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -37,6 +37,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('search'); // 'search' | 'saved'
   const [editingRatingId, setEditingRatingId] = useState(null); // Trạng thái chỉnh sửa số sao
+  const [showPinyin, setShowPinyin] = useState(true); // Trạng thái ẩn hiện pinyin trong sổ tay
 
   // Trạng thái cho tính năng Gợi ý Trực tiếp
   const [suggestions, setSuggestions] = useState([]);
@@ -44,6 +45,7 @@ export default function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suppressSuggest, setSuppressSuggest] = useState(false); // Ngăn trigger API Suggest sau khi đã chọn kết quả
   const [expandedExamples, setExpandedExamples] = useState({}); // Quản lý trạng thái mở dropdown ví dụ
+  const [showExampleMeta, setShowExampleMeta] = useState({}); // Quản lý trạng thái ẩn/hiện pinyin, nghĩa của ví dụ
   const [filterRating, setFilterRating] = useState('All'); // Bộ lọc cấp độ sao (All, 1,2,3,4,5)
   const [searchTermSaved, setSearchTermSaved] = useState(''); // Text search cục bộ trong thư viện
   const [visibleCount, setVisibleCount] = useState(20);
@@ -421,6 +423,7 @@ export default function App() {
                     key={item.id || index}
                     item={item}
                     savedWords={savedWords} // Pass savedWords for checking specific meanings
+                    suggestedWords={results.slice(1, 6)}
                     onSave={(itemToSave, contentBlock, meanObj, contentIdx, meanIdx) => saveWord(itemToSave, contentBlock, meanObj, contentIdx, meanIdx)}
                     onPlay={() => playAudio(item.word)}
                     onSearchWord={handleSearchWord}
@@ -450,7 +453,16 @@ export default function App() {
         {/* --- TAB SỔ TAY TỪ VỰNG --- */}
         {activeTab === 'saved' && (
           <div className="flex flex-col gap-6">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">Sổ Tay Từ Vựng Của Bạn</h2>
+            <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Sổ Tay Từ Vựng Của Bạn</h2>
+              <button
+                onClick={() => setShowPinyin(!showPinyin)}
+                className="text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+                title={showPinyin ? "Ẩn pinyin" : "Hiện pinyin"}
+              >
+                {showPinyin ? <Eye size={20} /> : <EyeOff size={20} />}
+              </button>
+            </div>
 
             {savedWords.length === 0 ? (
               <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
@@ -606,7 +618,7 @@ export default function App() {
                                 <div className="flex items-baseline gap-2">
                                   <span className="text-2xl font-bold text-gray-800 dark:text-gray-100 transition-colors">{item.word}</span>
                                   <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
-                                    [{item.pinyin || item.zhuyin}] {wordKind ? `(${wordKind})` : ''}
+                                    {showPinyin && `[${item.pinyin || item.zhuyin}] `}{wordKind ? `(${wordKind})` : ''}
                                   </span>
                                 </div>
                               </div>
@@ -690,12 +702,32 @@ export default function App() {
                                 {examples.length > 0 && (() => {
                                   const ex = examples[0];
                                   const exContent = ex.content || ex.e;
+                                  const exPinyin = ex.pinyin || ex.p || '';
+                                  const exMean = ex.mean || ex.m || '';
+                                  const isExMetaVisible = !!showExampleMeta[item.id];
                                   return (
                                     <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800/50 transition-colors">
-                                      <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest block mb-0.5">Ví dụ:</span>
+                                      <div className="flex items-center justify-between mb-0.5">
+                                        <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest block">Ví dụ:</span>
+                                        <button
+                                          onClick={() => setShowExampleMeta(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                          className="text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors"
+                                          title={isExMetaVisible ? "Ẩn pinyin và nghĩa ví dụ" : "Hiện pinyin và nghĩa ví dụ"}
+                                        >
+                                          {isExMetaVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                                        </button>
+                                      </div>
                                       <div className="text-gray-800 dark:text-gray-200 font-medium text-sm flex items-start gap-1.5 transition-colors">
-                                        <span className="text-indigo-400 dark:text-indigo-500 select-none">•</span>
-                                        <span>{exContent}</span>
+                                        <span className="text-indigo-400 dark:text-indigo-500 select-none mt-0.5">•</span>
+                                        <div className="flex flex-col gap-0.5">
+                                          <span>{exContent}</span>
+                                          {isExMetaVisible && (exPinyin || exMean) && (
+                                            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-normal italic flex flex-col gap-0.5 transition-colors">
+                                              {exPinyin && <span>{exPinyin}</span>}
+                                              {exMean && <span>{exMean}</span>}
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
                                     </div>
                                   );
@@ -722,7 +754,7 @@ export default function App() {
 // =========================================================================
 // COMPONENT THẺ TỪ VỰNG
 // =========================================================================
-function WordCard({ item, savedWords, onSave, onPlay, onSearchWord }) {
+function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onSearchWord }) {
   // Lấy định nghĩa đầu tiên làm chính
   const firstContent = item.content?.[0];
   const firstMean = firstContent?.means?.[0];
@@ -900,6 +932,35 @@ function WordCard({ item, savedWords, onSave, onPlay, onSearchWord }) {
                 {c}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TỪ GỢI Ý */}
+      {suggestedWords && suggestedWords.length > 0 && (
+        <div className="pt-4 border-t-dashed border-gray-200 dark:border-gray-700 mt-6 mb-6 transition-colors">
+          <h4 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 transition-colors">Từ Gợi Ý</h4>
+          <div className="flex flex-col gap-2">
+            {suggestedWords.map((sugItem, i) => {
+              // Extract Vietnamese meaning from nested content
+              const firstContentObj = sugItem.content?.[0];
+              const firstMeanObj = firstContentObj?.means?.[0];
+              const sugMeanStr = firstMeanObj?.mean || firstMeanObj?.explain || sugItem.cn_vi || '';
+
+              return (
+                <div
+                  key={i}
+                  onClick={() => onSearchWord && onSearchWord(sugItem.word)}
+                  className="p-3 bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 border border-gray-200 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-700 rounded-xl transition-colors cursor-pointer flex justify-between items-center group shadow-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold text-gray-800 dark:text-gray-100 transition-colors">{sugItem.word}</span>
+                    <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">[{sugItem.pinyin || sugItem.zhuyin}]</span>
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate max-w-[50%] text-right transition-colors">{sugMeanStr}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
