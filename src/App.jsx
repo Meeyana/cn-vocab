@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2, Edit3, Eye, EyeOff } from 'lucide-react';
+import CryptoJS from 'crypto-js';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { auth, db } from './firebase';
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
@@ -762,34 +763,51 @@ function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onSearchWo
   // Tách từ ghép (compound) thành mảng từ khóa để bấm
   const compounds = item.compound ? item.compound.split(';').map(c => c.trim()).filter(c => c) : [];
 
+  // Tạo hash MD5 để lấy ảnh từ Hanzii
+  const md5Hash = CryptoJS.MD5(item.word).toString();
+  const imageUrl = `https://assets.hanzii.net/img_word/${md5Hash}_h.jpg`;
+
   return (
     <div className="bg-white dark:bg-gray-800 p-6 sm:p-8 rounded-3xl shadow-lg border border-gray-100 dark:border-gray-700 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
 
-      {/* Header Thẻ: Chữ Hán, Pinyin, Nút */}
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <div className="flex items-end gap-3 mb-1">
-            <h2 className="text-4xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{item.word}</h2>
-            <button
-              onClick={onPlay}
-              className="text-indigo-500 dark:text-indigo-400 mb-1 p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-              title="Nghe phát âm"
-            >
-              <Volume2 size={20} />
-            </button>
+      {/* Wrapper to align Header & Hán Việt on the left, Image on the right */}
+      <div className="flex justify-between items-stretch mb-4 pb-4 border-b border-gray-100 dark:border-gray-700 transition-colors">
+        <div className="flex-1 flex flex-col justify-between">
+          {/* Header Thẻ: Chữ Hán, Pinyin, Nút */}
+          <div className="mb-4">
+            <div className="flex items-end gap-3 mb-1">
+              <h2 className="text-4xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{item.word}</h2>
+              <button
+                onClick={onPlay}
+                className="text-indigo-500 dark:text-indigo-400 mb-1 p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                title="Nghe phát âm"
+              >
+                <Volume2 size={20} />
+              </button>
+            </div>
+            <div className="text-lg font-medium text-indigo-600 dark:text-indigo-400 tracking-wide transition-colors">
+              [{item.pinyin || item.zhuyin}]
+            </div>
           </div>
-          <div className="text-lg font-medium text-indigo-600 dark:text-indigo-400 tracking-wide transition-colors">
-            [{item.pinyin || item.zhuyin}]
+
+          {/* Hán Việt */}
+          <div>
+            <span className="text-gray-500 dark:text-gray-400 text-sm font-medium uppercase tracking-wider transition-colors">Hán Việt</span>
+            <div className="text-xl font-medium text-gray-800 dark:text-gray-100 capitalize mt-1 transition-colors">{item.cn_vi}</div>
           </div>
         </div>
 
-        {/* Remove global save button since we save per meaning now */}
-      </div>
-
-      {/* Hán Việt */}
-      <div className="mb-4 pb-4 border-b border-gray-100 dark:border-gray-700 transition-colors">
-        <span className="text-gray-500 dark:text-gray-400 text-sm font-medium uppercase tracking-wider transition-colors">Hán Việt</span>
-        <div className="text-xl font-medium text-gray-800 dark:text-gray-100 capitalize mt-1 transition-colors">{item.cn_vi}</div>
+        {/* Thumbnail hình ảnh (nếu có) */}
+        <div className="flex-shrink-0 ml-6 w-[140px] flex items-stretch">
+          <img
+            src={imageUrl}
+            alt={`Minh họa cho ${item.word}`}
+            className="w-full h-full object-cover rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 transition-colors"
+            onError={(e) => {
+              e.target.parentElement.style.display = 'none'; // Ẩn luôn div cha nếu load lỗi 404
+            }}
+          />
+        </div>
       </div>
 
       {/* Định nghĩa & Ví dụ */}
