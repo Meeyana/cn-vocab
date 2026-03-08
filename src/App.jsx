@@ -454,7 +454,7 @@ export default function App() {
         {/* --- TAB SỔ TAY TỪ VỰNG --- */}
         {activeTab === 'saved' && (
           <div className="flex flex-col gap-6">
-            <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">
               <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Sổ Tay Từ Vựng Của Bạn</h2>
               <button
                 onClick={() => setShowPinyin(!showPinyin)}
@@ -1164,7 +1164,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
   const generateQuestion = (word) => {
     try {
       console.log("Đang tạo câu hỏi cho từ:", word);
-      let availableTypes = [1, 2]; // 1: Listen, 2: Meaning (Vi)
+      let availableTypes = [1, 2, 3]; // 1: Listen, 2: Meaning (Vi), 3: Image Selection
 
       // Đã gỡ bỏ Question Type 3 (Giải nghĩa bề mặt Hán - Hán) theo yêu cầu User
 
@@ -1462,12 +1462,35 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
               </button>
             </div>
           )}
+
+          {type === 3 && (
+            <div className="w-full">
+              <div className="text-xs font-bold text-green-500 dark:text-green-400 uppercase tracking-wider mb-4 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800/50 py-1.5 px-3 rounded-full inline-block transition-colors">
+                Chọn hình ảnh minh họa
+              </div>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2 drop-shadow-sm transition-colors">
+                {wordObj.word}
+              </h2>
+              {showResult && (
+                <div className="text-lg text-gray-600 dark:text-gray-400 font-medium mb-4 animate-fade-in">
+                  [{wordObj.pinyin || wordObj.zhuyin}] — {wordObj.isSpecificMeaning ? wordObj.meaning : (wordObj.content?.[0]?.means?.[0]?.mean || wordObj.cn_vi)}
+                </div>
+              )}
+              <button
+                onClick={() => playAudio(wordObj.word)}
+                className={`text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 flex items-center gap-1.5 mx-auto text-sm font-medium bg-gray-50 dark:bg-gray-900/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800 transition-colors ${!showResult ? 'mb-2' : ''}`}
+              >
+                <Volume2 size={16} /> Nghe phát âm
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className={`grid gap-2 ${type === 3 ? 'grid-cols-2 max-w-lg mx-auto' : 'grid-cols-1 sm:grid-cols-2'}`}>
           {options.map((opt, idx) => {
             let optContent = "";
             let optSubContent = null;
+            let md5ImageUrl = null;
 
             if (type === 0 || type === 1) {
               optContent = opt.word;
@@ -1476,6 +1499,9 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
             } else if (type === 2) {
               optContent = opt.isSpecificMeaning ? opt.meaning : (opt.content?.[0]?.means?.[0]?.mean || opt.cn_vi || "Chưa có nghĩa");
               optSubContent = null;
+            } else if (type === 3) {
+              const hash = CryptoJS.MD5(opt.word).toString();
+              md5ImageUrl = `https://assets.hanzii.net/img_word/${hash}_h.jpg`;
             }
 
             let btnClass = "bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-gray-700/80 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-md transition-all";
@@ -1492,10 +1518,34 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                 key={idx}
                 disabled={showResult}
                 onClick={() => handleAnswer(opt)}
-                className={`p-3 rounded-2xl border-2 text-left transition-all duration-300 ${btnClass} flex flex-col justify-center min-h-[70px] sm:min-h-[80px]`}
+                className={`p-3 rounded-2xl border-2 text-center transition-all duration-300 overflow-hidden ${btnClass} flex flex-col items-center justify-center ${type === 3 ? 'aspect-[4/3] p-1' : 'min-h-[70px] sm:min-h-[80px]'}`}
               >
-                <div className={`font-bold leading-tight ${type === 2 ? 'text-[15px] sm:text-base line-clamp-3' : 'text-xl sm:text-2xl mb-1'} ${(showResult && opt.id !== wordObj.id) ? 'text-gray-400 dark:text-gray-600' : ''}`}>{optContent}</div>
-                {optSubContent && <div className={`text-xs ${showResult && opt.id === wordObj.id ? 'text-green-100 dark:text-green-200' : 'text-gray-500 dark:text-gray-400 font-mono'}`}>{optSubContent}</div>}
+                {type === 3 ? (
+                  <div className="w-full h-full relative rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 flex items-center justify-center">
+                    <img
+                      src={md5ImageUrl}
+                      alt="Lựa chọn hình ảnh"
+                      className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentElement.innerHTML = '<div class="text-gray-400 dark:text-gray-600 flex flex-col items-center"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span class="mt-2 text-sm font-medium">Không có ảnh</span></div>';
+                      }}
+                    />
+                    {/* Tick icon over correct image if result is shown */}
+                    {showResult && opt.id === wordObj.id && (
+                      <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center backdrop-blur-[1px]">
+                        <div className="bg-green-500 text-white p-2 rounded-full shadow-lg scale-in-center">
+                          <Check size={32} strokeWidth={3} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className={`font-bold leading-tight ${type === 2 ? 'text-[15px] sm:text-base line-clamp-3' : 'text-xl sm:text-2xl mb-1'} ${(showResult && opt.id !== wordObj.id) ? 'text-gray-400 dark:text-gray-600' : ''}`}>{optContent}</div>
+                    {optSubContent && <div className={`text-xs ${showResult && opt.id === wordObj.id ? 'text-green-100 dark:text-green-200' : 'text-gray-500 dark:text-gray-400 font-mono'}`}>{optSubContent}</div>}
+                  </>
+                )}
               </button>
             )
           })}
