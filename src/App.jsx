@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, BookMarked, Volume2, Plus, Check, LibraryBig, ChevronDown, ChevronUp, Star, RefreshCw, LogOut, Gamepad2, Pause, Play, ChevronRight, Sun, Moon, Trash2, Edit3, Eye, EyeOff } from 'lucide-react';
+import { Search, Loader2, Sparkles, Wand2, X, Check, Volume2, BookMarked, BrainCircuit, Gamepad2, Play, Pause, LibraryBig, LogOut, ChevronRight, Trophy, Link, Info, RefreshCw, Eye, EyeOff, BookOpen, Sun, Moon, Star, Trash2, Edit3, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import CryptoJS from 'crypto-js';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { auth, db } from './firebase';
@@ -10,7 +10,7 @@ import './index.css';
 // =========================================================================
 // COMPONENT CHÍNH
 // =========================================================================
-export default function App() {
+function App() {
   const [user, setUser] = useState(null); // Trạng thái đăng nhập Firebase
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -278,7 +278,7 @@ export default function App() {
     <div className={`min-h-screen ${isDarkMode ? 'dark' : ''} bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100 font-sans selection:bg-indigo-300 dark:selection:bg-indigo-700 transition-colors duration-300`}>
 
       {/* HEADER TÙY CHỈNH */}
-      {activeTab !== 'review' && (
+      {activeTab !== 'review' && activeTab !== 'flashcard' && (
         <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md shadow-sm sticky top-0 z-[100] border-b border-gray-100 dark:border-gray-800 transition-colors duration-300">
           <div className="max-w-4xl mx-auto px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
             <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 min-w-0 transition-colors">
@@ -451,6 +451,16 @@ export default function App() {
           />
         )}
 
+        {/* --- TAB FLASHCARD (LẬT THẺ) --- */}
+        {activeTab === 'flashcard' && (
+          <FlashcardScreen
+            savedWords={savedWords}
+            updateRating={updateRating}
+            playAudio={playAudio}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
         {/* --- TAB SỔ TAY TỪ VỰNG --- */}
         {activeTab === 'saved' && (
           <div className="flex flex-col gap-6">
@@ -526,7 +536,14 @@ export default function App() {
                 })()}
 
                 {/* --- TRÌNH XỬ LÝ LỌC TỪ VỰNG --- */}
-                <div className="flex justify-end mb-4">
+                <div className="flex justify-end gap-3 mb-4">
+                  <button
+                    onClick={() => setActiveTab('flashcard')}
+                    className="bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 text-indigo-700 dark:text-indigo-300 font-bold py-3 px-6 rounded-xl flex items-center gap-2 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center border border-indigo-200 dark:border-indigo-700/50"
+                  >
+                    <BookOpen size={20} />
+                    Flashcard
+                  </button>
                   <button
                     onClick={() => setActiveTab('review')}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center"
@@ -1664,7 +1681,356 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
         .animate-fade-in {
           animation: fadeIn 0.4s ease-out forwards;
         }
+        .perspective-1000 {
+          perspective: 1000px;
+          -webkit-perspective: 1000px;
+        }
+        .my-rotate-y-180 {
+          transform: rotateY(180deg);
+          -webkit-transform: rotateY(180deg);
+        }
+        .-my-rotate-y-180 {
+          transform: rotateY(-180deg);
+          -webkit-transform: rotateY(-180deg);
+        }
       `}} />
     </div>
   );
 }
+
+// =========================================================================
+// COMPONENT LẬT THẺ (FLASHCARD SCREEN)
+// =========================================================================
+function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
+  const [hasStarted, setHasStarted] = useState(false);
+  const [queue, setQueue] = useState([]);
+  const [currentCard, setCurrentCard] = useState(null);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [mistakes, setMistakes] = useState({});
+  const [isFinished, setIsFinished] = useState(false);
+
+  // Lưu nháp kết quả tăng/giảm sao chưa bắn lên server: { wordId: newRating }
+  const [pendingUpdates, setPendingUpdates] = useState({});
+
+  // Lưu danh sách id đã đúng / sai để hiển thị màn hình báo cáo cuối
+  const [sessionResults, setSessionResults] = useState([]);
+  const [isSavingOnExit, setIsSavingOnExit] = useState(false);
+
+  // Lọc từ để học: Chỉ những từ < 5 sao, CHỈ CHẠY 1 LẦN KHI BẮT ĐẦU
+  useEffect(() => {
+    if (hasStarted && queue.length === 0 && !isFinished && !currentCard) {
+      const reviewable = savedWords.filter(w => w.rating < 5);
+
+      // Shuffle mảng
+      for (let i = reviewable.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [reviewable[i], reviewable[j]] = [reviewable[j], reviewable[i]];
+      }
+      setQueue(reviewable);
+    }
+  }, [hasStarted]); // Chỉ trigger khi hasStarted thay đổi (bấm nút Start)
+
+  // Lấy thẻ tiếp theo hoặc kiểm tra hoàn thành
+  useEffect(() => {
+    if (hasStarted) {
+      if (queue.length > 0 && !currentCard && !isFinished) {
+        nextCard();
+      } else if (queue.length === 0 && !currentCard && sessionResults.length > 0) {
+        setIsFinished(true);
+      }
+    }
+  }, [queue, hasStarted, isFinished, currentCard]);
+
+  const nextCard = () => {
+    if (queue.length === 0) return;
+    const nextItem = queue[0];
+    setCurrentCard(nextItem);
+    setIsFlipped(false);
+  };
+
+  // Nút Chưa Thuộc (Sai)
+  const handleForget = async () => {
+    if (!currentCard) return;
+    const wordId = currentCard.id;
+
+    // Track for summary if not already tracked
+    if (!sessionResults.some(res => res.wordObj.id === currentCard.id)) {
+      setSessionResults(prev => [...prev, { wordObj: currentCard, isCorrect: false }]);
+    }
+
+    const currentMistakes = (mistakes[wordId] || 0) + 1;
+    setMistakes(prev => ({ ...prev, [wordId]: currentMistakes }));
+
+    if (currentMistakes === 3) {
+      setPendingUpdates(prev => {
+        let currentBaseRating = prev[wordId] !== undefined ? prev[wordId] : currentCard.rating;
+        return { ...prev, [wordId]: Math.max(1, currentBaseRating - 1) };
+      });
+    }
+
+    // Move to end of queue to review again
+    setQueue(prev => {
+      const newQueue = [...prev];
+      if (newQueue.length > 0) {
+        const failedWord = newQueue.shift();
+        const insertIdx = Math.min(3, newQueue.length); // Xếp lại sau 3 thẻ
+        newQueue.splice(insertIdx, 0, failedWord);
+      }
+      return newQueue;
+    });
+
+    setCurrentCard(null);
+  };
+
+  // Nút Đã Thuộc (Đúng)
+  const handleRemember = async () => {
+    if (!currentCard) return;
+    const wordId = currentCard.id;
+
+    // Track for summary if not already tracked
+    if (!sessionResults.some(res => res.wordObj.id === currentCard.id)) {
+      setSessionResults(prev => [...prev, { wordObj: currentCard, isCorrect: true }]);
+    }
+
+    if (!mistakes[wordId] && currentCard.rating < 5) {
+      setPendingUpdates(prev => {
+        let currentBaseRating = prev[wordId] !== undefined ? prev[wordId] : currentCard.rating;
+        return { ...prev, [wordId]: Math.min(5, currentBaseRating + 1) };
+      });
+    }
+
+    setQueue(prev => prev.slice(1));
+    setCurrentCard(null);
+  };
+
+  // Force Save changes
+  useEffect(() => {
+    const saveAndExit = async () => {
+      if (isFinished && Object.keys(pendingUpdates).length > 0) {
+        setIsSavingOnExit(true);
+        try {
+          // Thực hiện lưu chéo song song
+          const promises = Object.entries(pendingUpdates).map(([id, newRating]) => {
+            return updateRating(id, newRating);
+          });
+          await Promise.all(promises);
+          setPendingUpdates({}); // Xóa nháp
+        } catch (error) {
+          console.error("Lỗi khi lưu kết quả ôn tập (Flashcard):", error);
+        } finally {
+          setIsSavingOnExit(false);
+        }
+      }
+    };
+    saveAndExit();
+  }, [isFinished]);
+
+
+  if (!hasStarted) {
+    const reviewableCount = savedWords.filter(w => w.rating < 5).length;
+    return (
+      <div className="bg-white dark:bg-gray-800 p-10 rounded-3xl shadow-md text-center max-w-lg mx-auto mt-10 border border-gray-100 dark:border-gray-700 relative overflow-hidden transition-colors duration-300">
+        <div className="absolute top-[-20%] left-[-10%] w-64 h-64 bg-indigo-100 dark:bg-indigo-900/30 rounded-full mix-blend-multiply filter blur-3xl opacity-50 transition-colors"></div>
+        <div className="w-24 h-24 bg-indigo-50 dark:bg-indigo-900/40 rounded-3xl flex items-center justify-center mx-auto mb-6 text-indigo-600 dark:text-indigo-400 rotate-3 shadow-inner border border-indigo-100 dark:border-indigo-800 transition-all">
+          <BookOpen size={48} className="-rotate-3" />
+        </div>
+        <h2 className="text-3xl font-black text-gray-900 dark:text-gray-100 mb-2 transition-colors">Lật Thẻ Trí Nhớ</h2>
+        <p className="text-gray-500 dark:text-gray-400 mb-8 font-medium transition-colors">Giúp củng cố <strong className="text-indigo-600 dark:text-indigo-400">{reviewableCount}</strong> từ vựng bằng flashcard truyền thống.</p>
+        <button
+          onClick={() => setHasStarted(true)}
+          disabled={reviewableCount === 0}
+          className="w-full bg-indigo-600 text-white font-bold text-lg px-6 py-4 rounded-xl hover:bg-indigo-700 active:bg-indigo-800 transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:shadow-none"
+        >
+          {reviewableCount === 0 ? "Bạn đã thuộc hết mọi từ vựng!" : "Bắt Đầu Lật Thẻ"}
+        </button>
+      </div>
+    );
+  }
+
+  if (isFinished) {
+    const correctCount = sessionResults.filter(r => r.isCorrect).length;
+    const totalCount = sessionResults.length;
+
+    return (
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-lg text-center max-w-2xl mx-auto mt-10 border border-gray-100 dark:border-gray-700 transition-colors duration-300">
+        <div className="w-24 h-24 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6 text-green-600 dark:text-green-400">
+          <Check size={48} />
+        </div>
+        <h2 className="text-3xl font-black text-gray-900 dark:text-gray-100 mb-2 transition-colors">Tuyệt Vời!</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-8 font-medium transition-colors">
+          Báo cáo tiến độ Flashcard của bạn: <strong className="text-indigo-600 dark:text-indigo-400">{correctCount}/{totalCount}</strong> thẻ nhớ đúng.
+        </p>
+
+        {/* Danh sách thẻ đã ôn */}
+        {totalCount > 0 && (
+          <div className="text-left bg-gray-50 dark:bg-gray-900/50 rounded-2xl p-4 mb-8 border border-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto custom-scrollbar">
+            <h3 className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 px-2">Chi tiết phiên Flashcard</h3>
+            <div className="space-y-2">
+              {sessionResults.map((res, idx) => {
+                const wObj = res.wordObj;
+                const meaningDisplay = wObj.isSpecificMeaning
+                  ? wObj.meaning
+                  : (wObj.content?.[0] ? wObj.content[0].means[0].mean || wObj.content[0].means[0].explain : wObj.cn_vi);
+
+                return (
+                  <div key={idx} className={`p-3 rounded-xl flex items-center justify-between border ${res.isCorrect ? 'bg-green-50/50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30' : 'bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-900/30'} transition-colors`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${res.isCorrect ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400'}`}>
+                        {res.isCorrect ? <Check size={16} /> : <span className="font-bold cursor-default select-none">✕</span>}
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-900 dark:text-gray-100">{wObj.word} <span className="font-normal text-sm text-gray-500 dark:text-gray-400 ml-1">[{wObj.pinyin || wObj.zhuyin}]</span></div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[200px] sm:max-w-xs">{meaningDisplay}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setActiveTab('saved')} // Quay về Sổ tay
+          disabled={isSavingOnExit}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-lg px-8 py-3.5 rounded-xl transition-all shadow-lg hover:-translate-y-0.5 disabled:opacity-70 flex items-center justify-center mx-auto gap-2"
+        >
+          {isSavingOnExit ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+          ) : (
+            <>
+              <LibraryBig size={20} />
+              Trở Về Sổ Tay
+            </>
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  if (!currentCard) {
+    return <div className="text-center py-20 text-gray-500 font-medium">Đang xào bài...</div>;
+  }
+
+  // Lấy data MD5 cho Flashcard
+  const md5Hash = CryptoJS.MD5(currentCard.word).toString();
+  const imageUrl = `https://assets.hanzii.net/img_word/${md5Hash}_h.jpg`;
+
+  const reviewWordKind = currentCard.isSpecificMeaning ? currentCard.kind : currentCard.content?.[0]?.kind;
+  const reviewMainMeaning = currentCard.isSpecificMeaning
+    ? currentCard.meaning
+    : (currentCard.content?.[0] ? currentCard.content[0].means[0].mean || currentCard.content[0].means[0].explain : "Không có định nghĩa");
+
+  const examplesList = currentCard.isSpecificMeaning ? currentCard.examples : currentCard.content?.[0]?.means?.[0]?.examples;
+
+  return (
+    <div className="max-w-xl mx-auto mt-4 px-4 h-[calc(100vh-160px)] flex flex-col pb-4">
+      {/* Header */}
+      <div className="mb-4 flex justify-between items-center">
+        <button
+          onClick={() => setIsFinished(true)}
+          disabled={isSavingOnExit}
+          title="Kết thúc sớm & Xem báo cáo"
+          className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-500 dark:hover:text-red-400 px-4 py-2 rounded-xl flex items-center gap-2 transition-colors border border-transparent dark:border-gray-700 shadow-sm cursor-pointer font-bold text-sm"
+        >
+          <LogOut size={18} />
+          <span>{isSavingOnExit ? "Đang lưu..." : "Thoát"}</span>
+        </button>
+      </div>
+
+      {/* FLASHCARD (3D FLIP - ROBUST APPROACH) */}
+      <div className="w-full flex-1 mb-6 cursor-pointer select-none perspective-1000 flex flex-col" onClick={() => setIsFlipped(!isFlipped)}>
+        <div className="relative w-full flex-1 flex flex-col">
+
+          {/* MẶT TRƯỚC */}
+          <div
+            className={`absolute inset-0 w-full h-full border-2 border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-3xl shadow-xl flex flex-col items-center justify-center transition-all duration-500 ease-in-out z-20 ${isFlipped ? 'opacity-0 my-rotate-y-180 pointer-events-none scale-95' : 'opacity-100 transform-none scale-100'}`}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word); }}
+              className="absolute top-4 right-4 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-2 rounded-full bg-gray-50 dark:bg-gray-900/50 transition-colors shadow-sm"
+            >
+              <Volume2 size={24} />
+            </button>
+            <h2 className="text-6xl md:text-7xl lg:text-8xl font-black text-gray-900 dark:text-gray-100 drop-shadow-sm select-auto text-center px-4 break-words whitespace-normal leading-tight">{currentCard.word}</h2>
+          </div>
+
+          {/* MẶT SAU */}
+          <div
+            className={`absolute inset-0 w-full h-full border-2 border-indigo-100 dark:border-indigo-900/40 bg-indigo-50 dark:bg-gray-800 rounded-3xl shadow-xl flex flex-col overflow-hidden transition-all duration-500 ease-in-out z-10 ${isFlipped ? 'opacity-100 transform-none scale-100' : 'opacity-0 -my-rotate-y-180 pointer-events-none scale-95'}`}
+          >
+            <div className="w-full h-full overflow-y-auto p-6 scrollbar-hide flex flex-col">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-4xl font-bold text-gray-900 dark:text-gray-100 mb-1 leading-none">{currentCard.word}</h3>
+                  <p className="text-xl font-medium text-indigo-600 dark:text-indigo-400">[{currentCard.pinyin || currentCard.zhuyin}] {reviewWordKind ? `(${reviewWordKind})` : ''}</p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word); }}
+                  className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-2 rounded-full bg-white dark:bg-gray-900/50 transition-colors shadow-sm"
+                >
+                  <Volume2 size={22} />
+                </button>
+              </div>
+
+              <div className="bg-white dark:bg-gray-900/50 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 mb-4 shrink-0 transition-colors">
+                <div className="font-bold text-gray-900 dark:text-gray-100 text-lg">{reviewMainMeaning}</div>
+              </div>
+
+              <div className="flex flex-col gap-4 flex-1 min-h-0 pb-2">
+                {/* Examples */}
+                {examplesList?.length > 0 && (
+                  <div className="shrink-0">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 py-1">Ví Dụ:</h4>
+                    <div className="space-y-3">
+                      {examplesList.slice(0, 3).map((ex, idx) => {
+                        const pinyinTxt = ex.pinyin || ex.p;
+                        return (
+                          <div key={idx} className="bg-white/60 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700 transition-colors">
+                            <p className="text-gray-900 dark:text-gray-200 font-bold text-sm leading-relaxed">{ex.content || ex.e}</p>
+                            {pinyinTxt && <p className="text-indigo-600 dark:text-indigo-400 text-xs font-medium my-1">[{pinyinTxt}]</p>}
+                            <p className="text-gray-500 dark:text-gray-400 text-xs italic">{ex.mean || ex.m}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Image - Full Width at Bottom */}
+                <div className="w-full h-48 sm:h-56 mt-auto shrink-0 relative overflow-hidden rounded-2xl border-2 border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+                  <img
+                    src={imageUrl}
+                    onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.style.display = 'none'; }}
+                    className="w-full h-full object-cover transition-opacity duration-300 pointer-events-none"
+                    alt={currentCard.word}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="grid grid-cols-2 gap-4 transition-all duration-300 shrink-0">
+        <button
+          onClick={handleForget}
+          className="bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 dark:text-red-400 font-bold py-4 px-6 rounded-2xl shadow-lg border-2 border-red-100 dark:border-red-900/30 transition-all hover:scale-[1.02] flex flex-col items-center justify-center gap-1"
+        >
+          <X size={32} strokeWidth={3} />
+        </button>
+        <button
+          onClick={handleRemember}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-indigo-600/20 transition-all hover:scale-[1.02] flex flex-col items-center justify-center gap-1 border-2 border-transparent"
+        >
+          <Check size={32} strokeWidth={3} />
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
+export default App;
