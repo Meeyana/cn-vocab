@@ -1120,7 +1120,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
   const [feedback, setFeedback] = useState(null); // 'correct' | 'wrong'
   const [showResult, setShowResult] = useState(false);
   const [totalReviewed, setTotalReviewed] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isAutoNext, setIsAutoNext] = useState(true);
 
   // Lưu nháp kết quả tăng/giảm sao chưa bắn lên server: { wordId: newRating }
   const [pendingUpdates, setPendingUpdates] = useState({});
@@ -1276,19 +1276,18 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
     setCurrentQuestion(null);
     setShowResult(false);
     setFeedback(null);
-    setIsPaused(false);
   };
 
   // Timer điều khiển auto-next
   useEffect(() => {
     let timer;
-    if (showResult && !isPaused) {
+    if (showResult && isAutoNext) {
       timer = setTimeout(() => {
         handleNextQuestion();
       }, 3000); // 3s delay
     }
     return () => clearTimeout(timer);
-  }, [showResult, isPaused, feedback, currentQuestion]);
+  }, [showResult, isAutoNext, feedback, currentQuestion]);
 
   const handleAnswer = async (selectedOption) => {
     if (showResult) return;
@@ -1425,8 +1424,29 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
           className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-500 dark:hover:text-red-400 px-4 py-2 rounded-xl flex items-center gap-2 transition-colors border border-transparent dark:border-gray-700 shadow-sm cursor-pointer font-bold font-sm"
         >
           <LogOut size={18} />
-          {isSavingOnExit ? "Đang lưu..." : "Thoát ôn tập"}
+          <span className="hidden sm:inline">{isSavingOnExit ? "Đang lưu..." : "Thoát"}</span>
         </button>
+
+        <div className="flex items-center gap-3">
+          {/* Tự động qua câu Toggle */}
+          <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-2 sm:px-3 py-1.5 border border-gray-100 dark:border-gray-700 rounded-xl transition-colors cursor-pointer hover:shadow-sm" onClick={() => setIsAutoNext(!isAutoNext)}>
+            <span className="text-[13px] font-bold text-gray-500 dark:text-gray-400 hidden sm:block select-none">Tự động qua câu:</span>
+            <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${isAutoNext ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isAutoNext ? 'translate-x-4' : 'translate-x-1'}`} />
+            </div>
+            <span className={`text-[11px] font-bold uppercase tracking-wider w-8 select-none ${isAutoNext ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400'}`}>{isAutoNext ? 'Bật' : 'Tắt'}</span>
+          </div>
+
+          {/* Nút Câu Tiếp */}
+          {showResult && (
+            <button
+              onClick={handleNextQuestion}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 sm:px-4 py-2 rounded-xl font-bold flex items-center gap-1 transition hover:shadow-lg hover:-translate-y-0.5"
+            >
+              Next <ChevronRight size={18} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className={`bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-3xl shadow-lg border-2 transition-all duration-300 mb-4 ${feedback === 'correct' ? 'border-green-400 bg-green-50 dark:bg-green-900/20 dark:border-green-500/50' : feedback === 'wrong' ? 'border-red-400 bg-red-50 dark:bg-red-900/20 dark:border-red-500/50 relative' : 'border-gray-100 dark:border-gray-700'}`}
@@ -1551,6 +1571,18 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
           })}
         </div>
 
+        {/* Nút CHƯA THUỘC (Chỉ hiển thị khi chưa chọn đáp án) */}
+        {!showResult && (
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={() => handleAnswer({ id: 'skip' })}
+              className="px-6 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/40 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 font-medium rounded-full border border-gray-200 dark:border-gray-700 transition-colors shadow-sm text-sm"
+            >
+              Chưa thuộc từ này
+            </button>
+          </div>
+        )}
+
         {/* CHI TIẾT ĐÁP ÁN (Chỉ hiển thị khi có kết quả) */}
         {showResult && (() => {
           const reviewWordKind = wordObj.isSpecificMeaning ? wordObj.kind : wordObj.content?.[0]?.kind;
@@ -1610,28 +1642,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                 })()}
               </div>
 
-              {/* ĐIỀU KHIỂN PAUSE / RESUME */}
-              <div className="flex items-center justify-between gap-4 bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 mt-2 transition-colors">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setIsPaused(!isPaused)}
-                    className={`flex items-center justify-center w-10 h-10 rounded-full transition-all shadow-sm ${isPaused ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 shadow-inner' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 border border-transparent dark:border-gray-600'}`}
-                    title={isPaused ? "Tiếp tục đếm ngược" : "Tạm dừng đếm ngược"}
-                  >
-                    {isPaused ? <Play size={18} className="ml-1" /> : <Pause size={18} />}
-                  </button>
-                  <div className="text-[13px] font-medium hidden sm:block">
-                    {isPaused ? <span className="text-orange-600 dark:text-orange-400 animate-pulse">Đã tạm dừng bộ đếm</span> : null}
-                  </div>
-                </div>
 
-                <button
-                  onClick={handleNextQuestion}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition hover:shadow-lg hover:-translate-y-0.5"
-                >
-                  Câu tiếp <ChevronRight size={18} />
-                </button>
-              </div>
             </div>
           );
         })()}
