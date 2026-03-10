@@ -36,7 +36,8 @@ function App() {
   const [results, setResults] = useState([]);
   const [savedWords, setSavedWords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('search'); // 'search' | 'saved'
+  const [activeTab, setActiveTab] = useState('saved'); // 'saved' | 'review' | 'flashcard'
+  const [isSearchOpen, setIsSearchOpen] = useState(false); // Modal state
   const [editingRatingId, setEditingRatingId] = useState(null); // Trạng thái chỉnh sửa số sao
   const [showPinyin, setShowPinyin] = useState(true); // Trạng thái ẩn hiện pinyin trong sổ tay
 
@@ -315,17 +316,12 @@ function App() {
 
             <div className="flex bg-gray-100/80 dark:bg-gray-800 p-1 rounded-lg shrink-0 overflow-x-auto max-w-full items-center transition-colors">
               <button
-                onClick={() => setActiveTab('search')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'search' ? 'bg-white dark:bg-gray-700 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                onClick={() => setShowPinyin(!showPinyin)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${showPinyin ? 'bg-white dark:bg-gray-700 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                title={showPinyin ? "Ẩn Pinyin" : "Hiện Pinyin"}
               >
-                Tra Từ
-              </button>
-              <button
-                onClick={() => setActiveTab('saved')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1 ${activeTab === 'saved' ? 'bg-white dark:bg-gray-700 shadow text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-              >
-                <LibraryBig size={16} />
-                Sổ Tay
+                {showPinyin ? <Eye size={16} /> : <EyeOff size={16} />}
+                <span className="hidden sm:inline">Pinyin</span>
               </button>
 
               <div className="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1"></div>
@@ -357,113 +353,129 @@ function App() {
 
       <main className="max-w-4xl mx-auto px-4 py-8">
 
-        {/* --- TAB TRA TỪ --- */}
-        {activeTab === 'search' && (
-          <div className="space-y-6">
-
-            {/* Thanh Tìm Kiếm */}
-            <form id="searchForm" onSubmit={handleSearch} className="relative z-50">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setSuppressSuggest(false); // Reset cờ chặn
-                  // Khi user chủ động gõ phím thay đổi thì mới cho phép dropdown xuất hiện lại (nếu có suggest)
-                  if (!showSuggestions && e.target.value.trim().length >= 2) {
-                    setShowSuggestions(true);
-                  }
-                }}
-                onFocus={() => {
-                  // Bỏ trigger tự động mở popup khi focus nếu không có tương tác phím
-                }}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="Tra cứu Hán tự, Pinyin, hoặc tiếng Việt..."
-                className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-900/50 text-lg transition-all relative z-10 shadow-sm"
-              />
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 z-20" size={24} />
-              <button
-                type="submit"
-                className="absolute right-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-md hover:shadow-lg z-20"
-                disabled={isLoading}
-              >
-                Tra cứu
-              </button>
-
-              {/* Dropdown Gợi Ý */}
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute top-[100%] mt-2 left-0 right-0 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden z-[100] animate-in fade-in slide-in-from-top-2 duration-200">
-                  {isSuggesting && (
-                    <div className="px-4 py-2 text-sm text-gray-400 dark:text-gray-500 text-center animate-pulse border-b border-gray-50 dark:border-gray-700">Đang tìm gợi ý...</div>
-                  )}
-                  <div className="max-h-[300px] overflow-y-auto">
-                    {suggestions.map((sug, idx) => {
-                      // format API trả về: "你好#nihao#nǐ hǎo!#chào bạn"
-                      const parts = sug.split('#');
-                      const word = parts[0] || '';
-                      const pinyin = parts[2] || parts[1] || '';
-                      const mean = parts[3] || '';
-
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => {
-                            setSuppressSuggest(true); // Khóa quyền lấy suggest cho giá trị update tiếp theo
-                            setSearchTerm(word);
-                            setShowSuggestions(false);
-                            setSuggestions([]); // Xóa list gợi ý để lần focus tiếp theo không hiện lại
-                            // Tự động gọi hàm tính kiếm ngay sau khi bấm vào gợi ý
-                            setTimeout(() => {
-                              const form = document.getElementById("searchForm");
-                              if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-                            }, 50);
-                          }}
-                          className="px-4 py-3 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 cursor-pointer flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 last:border-0 transition-colors group"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Search size={14} className="text-gray-300 dark:text-gray-600 group-hover:text-indigo-400 dark:group-hover:text-indigo-300 transition-colors" />
-                            <span className="text-[17px] font-bold text-gray-800 dark:text-gray-100 transition-colors">{word}</span>
-                            {pinyin && <span className="text-sm font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/50 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800 transition-colors">{pinyin}</span>}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[40%] text-right font-medium transition-colors">{mean}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
+        {/* --- MODAL TRA TỪ --- */}
+        {isSearchOpen && (
+          <div className="fixed inset-0 z-[200] bg-gray-50 dark:bg-gray-900 transition-opacity flex flex-col animate-in fade-in duration-200">
+            <div className="w-full h-full overflow-y-auto flex flex-col relative">
+              <div className="sticky top-0 z-[100] bg-white/90 dark:bg-gray-900/90 backdrop-blur-md px-4 sm:px-6 md:px-8 py-4 border-b border-gray-200 dark:border-gray-800 shadow-sm flex justify-center">
+                <div className="w-full max-w-4xl flex justify-between items-center">
+                  <h3 className="text-xl sm:text-2xl font-bold flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                    <Search size={24} />
+                    Tra cứu từ vựng
+                  </h3>
+                  <button onClick={() => setIsSearchOpen(false)} className="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 p-2.5 rounded-full transition-colors" title="Đóng bảng tra từ (Esc)">
+                    <X size={24} />
+                  </button>
                 </div>
-              )}
-            </form>
-
-            {/* Loading State */}
-            {isLoading && (
-              <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-10 w-10 border-4 border-red-500 border-t-transparent"></div>
               </div>
-            )}
 
-            {/* Kết Quả */}
-            {!isLoading && results.length > 0 && (
-              <div className="space-y-4">
-                {results.slice(0, 1).map((item, index) => (
-                  <WordCard
-                    key={item.id || index}
-                    item={item}
-                    savedWords={savedWords} // Pass savedWords for checking specific meanings
-                    suggestedWords={results.slice(1, 6)}
-                    onSave={(itemToSave, contentBlock, meanObj, contentIdx, meanIdx) => saveWord(itemToSave, contentBlock, meanObj, contentIdx, meanIdx)}
-                    onPlay={() => playAudio(item.word, item.id)}
-                    onPlayEx={(text, id) => playAudio(text, id, true)}
-                    onSearchWord={handleSearchWord}
+              <div className="p-4 sm:p-6 md:p-8 space-y-6 flex-1 min-h-0 max-w-4xl mx-auto w-full">
+
+                {/* Thanh Tìm Kiếm */}
+                <form id="searchForm" onSubmit={handleSearch} className="relative z-50">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setSuppressSuggest(false); // Reset cờ chặn
+                      // Khi user chủ động gõ phím thay đổi thì mới cho phép dropdown xuất hiện lại (nếu có suggest)
+                      if (!showSuggestions && e.target.value.trim().length >= 2) {
+                        setShowSuggestions(true);
+                      }
+                    }}
+                    onFocus={() => {
+                      // Bỏ trigger tự động mở popup khi focus nếu không có tương tác phím
+                    }}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    placeholder="Tra cứu Hán tự, Pinyin, hoặc tiếng Việt..."
+                    className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-900/50 text-lg transition-all relative z-10 shadow-sm"
                   />
-                ))}
-              </div>
-            )}
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 z-20" size={24} />
+                  <button
+                    type="submit"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 font-medium transition-colors shadow-md hover:shadow-lg z-20"
+                    disabled={isLoading}
+                  >
+                    Tra cứu
+                  </button>
 
-            {!isLoading && results.length === 0 && searchTerm && (
-              <div className="text-center py-12 text-gray-500">
-                Không tìm thấy kết quả cho "{searchTerm}". Thử tra "kết hôn" hoặc "结婚" xem sao nhé.
+                  {/* Dropdown Gợi Ý */}
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute top-[100%] mt-2 left-0 right-0 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden z-[100] animate-in fade-in slide-in-from-top-2 duration-200">
+                      {isSuggesting && (
+                        <div className="px-4 py-2 text-sm text-gray-400 dark:text-gray-500 text-center animate-pulse border-b border-gray-50 dark:border-gray-700">Đang tìm gợi ý...</div>
+                      )}
+                      <div className="max-h-[300px] overflow-y-auto">
+                        {suggestions.map((sug, idx) => {
+                          // format API trả về: "你好#nihao#nǐ hǎo!#chào bạn"
+                          const parts = sug.split('#');
+                          const word = parts[0] || '';
+                          const pinyin = parts[2] || parts[1] || '';
+                          const mean = parts[3] || '';
+
+                          return (
+                            <div
+                              key={idx}
+                              onClick={() => {
+                                setSuppressSuggest(true); // Khóa quyền lấy suggest cho giá trị update tiếp theo
+                                setSearchTerm(word);
+                                setShowSuggestions(false);
+                                setSuggestions([]); // Xóa list gợi ý để lần focus tiếp theo không hiện lại
+                                // Tự động gọi hàm tính kiếm ngay sau khi bấm vào gợi ý
+                                setTimeout(() => {
+                                  const form = document.getElementById("searchForm");
+                                  if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                                }, 50);
+                              }}
+                              className="px-4 py-3 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 cursor-pointer flex justify-between items-center border-b border-gray-50 dark:border-gray-700/50 last:border-0 transition-colors group"
+                            >
+                              <div className="flex items-center gap-3">
+                                <Search size={14} className="text-gray-300 dark:text-gray-600 group-hover:text-indigo-400 dark:group-hover:text-indigo-300 transition-colors" />
+                                <span className="text-[17px] font-bold text-gray-800 dark:text-gray-100 transition-colors">{word}</span>
+                                {pinyin && <span className="text-sm font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/50 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800 transition-colors">{pinyin}</span>}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[40%] text-right font-medium transition-colors">{mean}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </form>
+
+                {/* Loading State */}
+                {isLoading && (
+                  <div className="flex justify-center items-center py-12">
+                    <div className="animate-spin rounded-full h-10 w-10 border-4 border-red-500 border-t-transparent"></div>
+                  </div>
+                )}
+
+                {/* Kết Quả */}
+                {!isLoading && results.length > 0 && (
+                  <div className="space-y-4">
+                    {results.slice(0, 1).map((item, index) => (
+                      <WordCard
+                        key={item.id || index}
+                        item={item}
+                        savedWords={savedWords} // Pass savedWords for checking specific meanings
+                        suggestedWords={results.slice(1, 6)}
+                        onSave={(itemToSave, contentBlock, meanObj, contentIdx, meanIdx) => saveWord(itemToSave, contentBlock, meanObj, contentIdx, meanIdx)}
+                        onPlay={() => playAudio(item.word, item.id)}
+                        onPlayEx={(text, id) => playAudio(text, id, true)}
+                        onSearchWord={handleSearchWord}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {!isLoading && results.length === 0 && searchTerm && (
+                  <div className="text-center py-12 text-gray-500">
+                    Không tìm thấy kết quả cho "{searchTerm}". Thử tra "kết hôn" hoặc "结婚" xem sao nhé.
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -475,328 +487,340 @@ function App() {
             playAudio={playAudio}
             setActiveTab={setActiveTab}
           />
-        )}
+        )
+        }
 
         {/* --- TAB FLASHCARD (LẬT THẺ) --- */}
-        {activeTab === 'flashcard' && (
-          <FlashcardScreen
-            savedWords={savedWords}
-            updateRating={updateRating}
-            playAudio={playAudio}
-            setActiveTab={setActiveTab}
-          />
-        )}
+        {
+          activeTab === 'flashcard' && (
+            <FlashcardScreen
+              savedWords={savedWords}
+              updateRating={updateRating}
+              playAudio={playAudio}
+              setActiveTab={setActiveTab}
+            />
+          )
+        }
 
         {/* --- TAB SỔ TAY TỪ VỰNG --- */}
-        {activeTab === 'saved' && (
-          <div className="flex flex-col gap-6">
-            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">
-              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Sổ Tay Từ Vựng Của Bạn</h2>
-              <button
-                onClick={() => setShowPinyin(!showPinyin)}
-                className="text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-                title={showPinyin ? "Ẩn pinyin" : "Hiện pinyin"}
-              >
-                {showPinyin ? <Eye size={20} /> : <EyeOff size={20} />}
-              </button>
-            </div>
-
-            {savedWords.length === 0 ? (
-              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
-                <LibraryBig size={48} className="mx-auto text-gray-300 dark:text-gray-500 mb-4 transition-colors" />
-                <p className="text-gray-500 dark:text-gray-400 font-medium transition-colors">Bạn chưa lưu từ vựng nào.</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1 transition-colors">Hãy tra từ và nhấn "Lưu từ" để thêm vào đây nhé.</p>
+        {
+          activeTab === 'saved' && (
+            <div className="flex flex-col gap-6">
+              <div className="border-b border-gray-200 dark:border-gray-700 pb-2 transition-colors">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Sổ Tay Từ Vựng Của Bạn</h2>
               </div>
-            ) : (
-              <>
-                {/* --- DASHBOARD THỐNG KÊ --- */}
-                {(() => {
-                  // Đếm từ vựng theo rank
-                  const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-                  savedWords.forEach(w => {
-                    const r = w.rating || 1;
-                    rankCounts[r] = (rankCounts[r] || 0) + 1;
-                  });
 
-                  // Format cho Recharts (Đã Việt Hóa)
-                  const dataMapping = [
-                    { name: 'Mới', star: 1, count: rankCounts[1], fill: '#FF6B6B' },
-                    { name: 'Đang học', star: 2, count: rankCounts[2], fill: '#FFB84D' },
-                    { name: 'Quen', star: 3, count: rankCounts[3], fill: '#FFD93D' },
-                    { name: 'Ổn', star: 4, count: rankCounts[4], fill: '#6BCB77' },
-                    { name: 'Nắm vững', star: 5, count: rankCounts[5], fill: '#4D96FF' }
-                  ];
-
-                  return (
-                    <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-md relative overflow-hidden group transition-all duration-300">
-                      {/* Tiêu đề Chart */}
-                      <div className="flex justify-between items-start mb-6">
-                        <div>
-                          <h3 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 flex items-center gap-2 transition-colors">
-                            Tiến độ học tập <RefreshCw size={18} className="text-indigo-500 dark:text-indigo-400 group-hover:rotate-180 transition-transform duration-500" />
-                          </h3>
-                          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1 transition-colors">Theo dõi mức độ nhớ từ vựng.</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-4xl gap-1 font-black text-indigo-600 dark:text-indigo-400 tracking-tight transition-colors">{savedWords.length}</span>
-                          <span className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-1 transition-colors">Tổng số từ</span>
-                        </div>
-                      </div>
-
-                      {/* Biểu Đồ Recharts */}
-                      <div className="h-[250px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={dataMapping} margin={{ top: 20, right: 10, left: 10, bottom: 25 }} barCategoryGap="30%" barSize={20}>
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} dy={10} interval={0} />
-                            <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} />
-                            <Bar dataKey="count" radius={[6, 6, 6, 6]}>
-                              {dataMapping.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* --- TRÌNH XỬ LÝ LỌC TỪ VỰNG --- */}
-                <div className="flex justify-end gap-3 mb-4">
-                  <button
-                    onClick={() => setActiveTab('flashcard')}
-                    className="bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 text-indigo-700 dark:text-indigo-300 font-bold py-3 px-6 rounded-xl flex items-center gap-2 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center border border-indigo-200 dark:border-indigo-700/50"
-                  >
-                    <BookOpen size={20} />
-                    Flashcard
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('review')}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center"
-                  >
-                    <Gamepad2 size={20} />
-                    Ôn tập ngay
-                  </button>
+              {savedWords.length === 0 ? (
+                <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
+                  <LibraryBig size={48} className="mx-auto text-gray-300 dark:text-gray-500 mb-4 transition-colors" />
+                  <p className="text-gray-500 dark:text-gray-400 font-medium transition-colors">Bạn chưa lưu từ vựng nào.</p>
+                  <p className="text-sm text-gray-400 dark:text-gray-500 mt-1 transition-colors">Hãy tra từ và nhấn "Lưu từ" để thêm vào đây nhé.</p>
                 </div>
+              ) : (
+                <>
+                  {/* --- DASHBOARD THỐNG KÊ --- */}
+                  {(() => {
+                    // Đếm từ vựng theo rank
+                    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+                    savedWords.forEach(w => {
+                      const r = w.rating || 1;
+                      rankCounts[r] = (rankCounts[r] || 0) + 1;
+                    });
 
-                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-2 rounded-2xl border border-gray-100 dark:border-gray-700 transition-colors">
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 transition-colors" size={18} />
-                    <input
-                      type="text"
-                      value={searchTermSaved}
-                      onChange={(e) => setSearchTermSaved(e.target.value)}
-                      placeholder="Tìm từ, pinyin hoặc nghĩa..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/50 text-sm font-medium transition-colors"
-                    />
-                  </div>
+                    // Format cho Recharts (Đã Việt Hóa)
+                    const dataMapping = [
+                      { name: 'Mới', star: 1, count: rankCounts[1], fill: '#FF6B6B' },
+                      { name: 'Đang học', star: 2, count: rankCounts[2], fill: '#FFB84D' },
+                      { name: 'Quen', star: 3, count: rankCounts[3], fill: '#FFD93D' },
+                      { name: 'Ổn', star: 4, count: rankCounts[4], fill: '#6BCB77' },
+                      { name: 'Nắm vững', star: 5, count: rankCounts[5], fill: '#4D96FF' }
+                    ];
 
-                  <div className="flex gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-hide shrink-0 px-1">
-                    {['Tất cả', '1 sao (Mới)', '2 sao', '3 sao', '4 sao', '5 sao (Thuộc)'].map((label, idx) => {
-                      const value = idx === 0 ? 'All' : idx;
-                      const isActive = filterRating === value;
-                      return (
-                        <button
-                          key={label}
-                          onClick={() => setFilterRating(value)}
-                          className={`px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-indigo-900/20' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'}`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* --- LƯỚI TỪ VỰNG FILTER --- */}
-                {(() => {
-                  // Lọc theo Text (Pinyin loại dấu, chữ Hán, chữ Việt) & Lọc theo Sao
-                  const removeTones = (str) => {
-                    if (!str) return "";
-                    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-                  };
-
-                  const searchStr = removeTones(searchTermSaved).trim();
-
-                  const filteredWords = savedWords.filter(w => {
-                    // Check sao
-                    const passRating = filterRating === 'All' || (w.rating || 1) === filterRating;
-                    // Check search text (>= 3 chars for Pinyin match roughly, or direct match)
-                    let passSearch = true;
-                    if (searchStr.length > 0) {
-                      const wordText = removeTones(w.word);
-                      const pinyinText = removeTones(w.pinyin || w.zhuyin);
-                      // For specific meanings, search in 'meaning' field, otherwise in 'cn_vi'
-                      const vietText = removeTones(w.isSpecificMeaning ? w.meaning : w.cn_vi);
-
-                      passSearch = wordText.includes(searchStr) ||
-                        pinyinText.includes(searchStr) ||
-                        vietText.includes(searchStr);
-                    }
-
-                    return passRating && passSearch;
-                  });
-
-                  if (filteredWords.length === 0) {
-                    return <div className="text-center py-8 text-gray-400 dark:text-gray-500 font-medium transition-colors">Không tìm thấy từ vựng nào ở cấp độ này.</div>
-                  }
-
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                      {filteredWords.slice(0, visibleCount).map((item) => {
-                        // Lấy định nghĩa đầu tiên làm chính (for old structure)
-                        const firstContent = item.content?.[0];
-                        const firstMean = firstContent?.means?.[0];
-                        const mainMeaning = item.isSpecificMeaning ? item.meaning : (firstMean?.mean || firstMean?.explain || item.cn_vi);
-                        const examples = item.isSpecificMeaning ? item.examples : (firstMean?.examples || []);
-                        const wordKind = item.isSpecificMeaning ? item.kind : firstContent?.kind;
-                        const explainText = item.isSpecificMeaning ? item.explain : firstMean?.explain;
-                        const showExplain = explainText && explainText !== mainMeaning;
-                        const isExpanded = !!expandedExamples[item.id];
-
-                        return (
-                          <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative group flex flex-col h-fit hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
-                            {/* Header chính: Chữ Hán, Pinyin nằm trái; Các nút nằm phải */}
-                            <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 pb-2 mb-2 transition-colors">
-                              <div className="flex flex-col mt-0.5">
-                                <div className="flex items-baseline gap-2">
-                                  <span className="text-2xl font-bold text-gray-800 dark:text-gray-100 transition-colors">{item.word}</span>
-                                  <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
-                                    {showPinyin && `[${item.pinyin || item.zhuyin}] `}{wordKind ? `(${wordKind})` : ''}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-col items-end gap-1">
-                                {/* Vùng Top Right: Đánh giá Sao */}
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <div className="flex gap-0.5 relative group/stars">
-                                    {[1, 2, 3, 4, 5].map((starIdx) => (
-                                      <Star
-                                        key={starIdx}
-                                        size={14}
-                                        onClick={() => editingRatingId === item.id ? updateRating(item.id, starIdx) : null}
-                                        className={starIdx <= (item.rating || 1)
-                                          ? "fill-yellow-400 text-yellow-400 " + (editingRatingId === item.id ? "cursor-pointer" : "cursor-default")
-                                          : "text-gray-200 dark:text-gray-600 " + (editingRatingId === item.id ? "cursor-pointer hover:text-yellow-300 transition-colors" : "cursor-default")}
-                                      />
-                                    ))}
-                                    {/* Chỉ thị đang chỉnh sửa (Tùy chọn) */}
-                                    {editingRatingId === item.id && (
-                                      <span className="absolute -top-5 right-0 text-[10px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded shadow-sm whitespace-nowrap animate-fade-in">Chọn sao...</span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Nút Nghe & Nút Xem thêm */}
-                                <div className="flex items-center gap-1">
-                                  <button onClick={() => playAudio(item.word, item.originalId || item.id)} className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors font-medium border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50" title="Nghe phát âm">
-                                    <Volume2 size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => setExpandedExamples(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                    className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50"
-                                    title="Xem nghĩa và ví dụ"
-                                  >
-                                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Nội dung xổ ra: Nghĩa, Giải thích & 1 Ví dụ */}
-                            {isExpanded && (
-                              <div className="mt-1 space-y-3 pt-2 transition-colors">
-                                {/* Nghĩa Tiếng Việt & Giải thích */}
-                                <div>
-                                  {/* Tùy chọn Xóa từ (hiển thị cùng lúc với phần Nghĩa) */}
-                                  <div className="flex justify-between items-start">
-                                    <div className="flex-1">
-                                      <h3 className="text-base font-bold text-gray-900 dark:text-gray-200 mb-0.5 leading-snug capitalize text-indigo-700 dark:text-indigo-300 transition-colors">
-                                        {mainMeaning}
-                                      </h3>
-                                    </div>
-                                    <div className="flex items-center gap-1 self-start ml-2 mt-0">
-                                      <button
-                                        onClick={() => setEditingRatingId(editingRatingId === item.id ? null : item.id)}
-                                        className={`p-1.5 rounded-full transition-colors border max-h-[30px] flex items-center justify-center ${editingRatingId === item.id ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800' : 'text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 border-transparent hover:border-gray-200 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-                                        title={editingRatingId === item.id ? "Hủy chỉnh sửa sao" : "Chỉnh sửa số sao"}
-                                      >
-                                        <Edit3 size={15} />
-                                      </button>
-
-                                      <button
-                                        onClick={() => deleteWord(item.id)}
-                                        className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors border border-transparent hover:border-red-100 dark:hover:border-red-800/50 max-h-[30px] flex items-center justify-center"
-                                        title="Xóa từ này"
-                                      >
-                                        <Trash2 size={16} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  {/* Only show explain if explain is different from meaning, now full width */}
-                                  {showExplain && (
-                                    <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors w-full">
-                                      {explainText}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* 1 Ví dụ duy nhất */}
-                                {examples.length > 0 && (() => {
-                                  const ex = examples[0];
-                                  const exContent = ex.content || ex.e;
-                                  const exPinyin = ex.pinyin || ex.p || '';
-                                  const exMean = ex.mean || ex.m || '';
-                                  const isExMetaVisible = !!showExampleMeta[item.id];
-                                  return (
-                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800/50 transition-colors">
-                                      <div className="flex items-center justify-between mb-0.5">
-                                        <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest block">Ví dụ:</span>
-                                        <button
-                                          onClick={() => setShowExampleMeta(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                          className="text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors"
-                                          title={isExMetaVisible ? "Ẩn pinyin và nghĩa ví dụ" : "Hiện pinyin và nghĩa ví dụ"}
-                                        >
-                                          {isExMetaVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                                        </button>
-                                      </div>
-                                      <div className="text-gray-800 dark:text-gray-200 font-medium text-sm flex items-start justify-between gap-3 transition-colors">
-                                        <div className="flex-1 min-w-0 flex items-start gap-1.5">
-                                          <span className="text-indigo-400 dark:text-indigo-500 select-none mt-0.5">•</span>
-                                          <div className="flex flex-col gap-0.5">
-                                            <span>{exContent}</span>
-                                            {isExMetaVisible && (exPinyin || exMean) && (
-                                              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-normal italic flex flex-col gap-0.5 transition-colors">
-                                                {exPinyin && <span>{exPinyin}</span>}
-                                                {exMean && <span>{exMean}</span>}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <button onClick={(e) => { e.stopPropagation(); playAudio(exContent, ex.id, true); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-indigo-50/50 dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-indigo-100 dark:border-indigo-800/50 mt-0.5" title="Nghe câu ví dụ">
-                                          <Volume2 size={16} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
+                    return (
+                      <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-md relative overflow-hidden group transition-all duration-300">
+                        {/* Tiêu đề Chart */}
+                        <div className="flex justify-between items-start mb-6">
+                          <div>
+                            <h3 className="text-xl font-extrabold text-gray-900 dark:text-gray-100 flex items-center gap-2 transition-colors">
+                              Tiến độ học tập <RefreshCw size={18} className="text-indigo-500 dark:text-indigo-400 group-hover:rotate-180 transition-transform duration-500" />
+                            </h3>
+                            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1 transition-colors">Theo dõi mức độ nhớ từ vựng.</p>
                           </div>
+                          <div className="text-right">
+                            <span className="text-4xl gap-1 font-black text-indigo-600 dark:text-indigo-400 tracking-tight transition-colors">{savedWords.length}</span>
+                            <span className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-1 transition-colors">Tổng số từ</span>
+                          </div>
+                        </div>
+
+                        {/* Biểu Đồ Recharts */}
+                        <div className="h-[250px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={dataMapping} margin={{ top: 20, right: 10, left: 10, bottom: 25 }} barCategoryGap="30%" barSize={20}>
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 600 }} dy={10} interval={0} />
+                              <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold' }} />
+                              <Bar dataKey="count" radius={[6, 6, 6, 6]}>
+                                {dataMapping.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* --- TRÌNH XỬ LÝ LỌC TỪ VỰNG --- */}
+                  <div className="flex justify-end gap-3 mb-4">
+                    <button
+                      onClick={() => setActiveTab('flashcard')}
+                      className="bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 text-indigo-700 dark:text-indigo-300 font-bold py-3 px-6 rounded-xl flex items-center gap-2 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center border border-indigo-200 dark:border-indigo-700/50"
+                    >
+                      <BookOpen size={20} />
+                      Flashcard
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('review')}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all hover:-translate-y-0.5 w-full sm:w-auto justify-center"
+                    >
+                      <Gamepad2 size={20} />
+                      Ôn tập ngay
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-gray-50 dark:bg-gray-800/50 p-2 rounded-2xl border border-gray-100 dark:border-gray-700 transition-colors">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 transition-colors" size={18} />
+                      <input
+                        type="text"
+                        value={searchTermSaved}
+                        onChange={(e) => setSearchTermSaved(e.target.value)}
+                        placeholder="Tìm từ, pinyin hoặc nghĩa..."
+                        className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900/50 text-sm font-medium transition-colors"
+                      />
+                    </div>
+
+                    <div className="flex gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-hide shrink-0 px-1">
+                      {['Tất cả', '1 sao (Mới)', '2 sao', '3 sao', '4 sao', '5 sao (Thuộc)'].map((label, idx) => {
+                        const value = idx === 0 ? 'All' : idx;
+                        const isActive = filterRating === value;
+                        return (
+                          <button
+                            key={label}
+                            onClick={() => setFilterRating(value)}
+                            className={`px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-indigo-900/20' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'}`}
+                          >
+                            {label}
+                          </button>
                         );
                       })}
                     </div>
-                  );
-                })()}
+                  </div>
 
-              </>
-            )}
-          </div>
-        )}
+                  {/* --- LƯỚI TỪ VỰNG FILTER --- */}
+                  {(() => {
+                    // Lọc theo Text (Pinyin loại dấu, chữ Hán, chữ Việt) & Lọc theo Sao
+                    const removeTones = (str) => {
+                      if (!str) return "";
+                      return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                    };
 
-      </main>
-    </div>
+                    const searchStr = removeTones(searchTermSaved).trim();
+
+                    const filteredWords = savedWords.filter(w => {
+                      // Check sao
+                      const passRating = filterRating === 'All' || (w.rating || 1) === filterRating;
+                      // Check search text (>= 3 chars for Pinyin match roughly, or direct match)
+                      let passSearch = true;
+                      if (searchStr.length > 0) {
+                        const wordText = removeTones(w.word);
+                        const pinyinText = removeTones(w.pinyin || w.zhuyin);
+                        // For specific meanings, search in 'meaning' field, otherwise in 'cn_vi'
+                        const vietText = removeTones(w.isSpecificMeaning ? w.meaning : w.cn_vi);
+
+                        passSearch = wordText.includes(searchStr) ||
+                          pinyinText.includes(searchStr) ||
+                          vietText.includes(searchStr);
+                      }
+
+                      return passRating && passSearch;
+                    });
+
+                    if (filteredWords.length === 0) {
+                      return <div className="text-center py-8 text-gray-400 dark:text-gray-500 font-medium transition-colors">Không tìm thấy từ vựng nào ở cấp độ này.</div>
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                        {filteredWords.slice(0, visibleCount).map((item) => {
+                          // Lấy định nghĩa đầu tiên làm chính (for old structure)
+                          const firstContent = item.content?.[0];
+                          const firstMean = firstContent?.means?.[0];
+                          const mainMeaning = item.isSpecificMeaning ? item.meaning : (firstMean?.mean || firstMean?.explain || item.cn_vi);
+                          const examples = item.isSpecificMeaning ? item.examples : (firstMean?.examples || []);
+                          const wordKind = item.isSpecificMeaning ? item.kind : firstContent?.kind;
+                          const explainText = item.isSpecificMeaning ? item.explain : firstMean?.explain;
+                          const showExplain = explainText && explainText !== mainMeaning;
+                          const isExpanded = !!expandedExamples[item.id];
+
+                          return (
+                            <div key={item.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative group flex flex-col h-fit hover:shadow-md hover:-translate-y-0.5 transition-all duration-300">
+                              {/* Header chính: Chữ Hán, Pinyin nằm trái; Các nút nằm phải */}
+                              <div className="flex items-start justify-between border-b border-gray-100 dark:border-gray-700 pb-2 mb-2 transition-colors">
+                                <div className="flex flex-col mt-0.5">
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="text-2xl font-bold text-gray-800 dark:text-gray-100 transition-colors">{item.word}</span>
+                                    <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
+                                      {showPinyin && `[${item.pinyin || item.zhuyin}] `}{wordKind ? `(${wordKind})` : ''}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1">
+                                  {/* Vùng Top Right: Đánh giá Sao */}
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <div className="flex gap-0.5 relative group/stars">
+                                      {[1, 2, 3, 4, 5].map((starIdx) => (
+                                        <Star
+                                          key={starIdx}
+                                          size={14}
+                                          onClick={() => editingRatingId === item.id ? updateRating(item.id, starIdx) : null}
+                                          className={starIdx <= (item.rating || 1)
+                                            ? "fill-yellow-400 text-yellow-400 " + (editingRatingId === item.id ? "cursor-pointer" : "cursor-default")
+                                            : "text-gray-200 dark:text-gray-600 " + (editingRatingId === item.id ? "cursor-pointer hover:text-yellow-300 transition-colors" : "cursor-default")}
+                                        />
+                                      ))}
+                                      {/* Chỉ thị đang chỉnh sửa (Tùy chọn) */}
+                                      {editingRatingId === item.id && (
+                                        <span className="absolute -top-5 right-0 text-[10px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded shadow-sm whitespace-nowrap animate-fade-in">Chọn sao...</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Nút Nghe & Nút Xem thêm */}
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={() => playAudio(item.word, item.originalId || item.id)} className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors font-medium border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50" title="Nghe phát âm">
+                                      <Volume2 size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => setExpandedExamples(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                      className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50"
+                                      title="Xem nghĩa và ví dụ"
+                                    >
+                                      {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Nội dung xổ ra: Nghĩa, Giải thích & 1 Ví dụ */}
+                              {isExpanded && (
+                                <div className="mt-1 space-y-3 pt-2 transition-colors">
+                                  {/* Nghĩa Tiếng Việt & Giải thích */}
+                                  <div>
+                                    {/* Tùy chọn Xóa từ (hiển thị cùng lúc với phần Nghĩa) */}
+                                    <div className="flex justify-between items-start">
+                                      <div className="flex-1">
+                                        <h3 className="text-base font-bold text-gray-900 dark:text-gray-200 mb-0.5 leading-snug capitalize text-indigo-700 dark:text-indigo-300 transition-colors">
+                                          {mainMeaning}
+                                        </h3>
+                                      </div>
+                                      <div className="flex items-center gap-1 self-start ml-2 mt-0">
+                                        <button
+                                          onClick={() => setEditingRatingId(editingRatingId === item.id ? null : item.id)}
+                                          className={`p-1.5 rounded-full transition-colors border max-h-[30px] flex items-center justify-center ${editingRatingId === item.id ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800' : 'text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 border-transparent hover:border-gray-200 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                                          title={editingRatingId === item.id ? "Hủy chỉnh sửa sao" : "Chỉnh sửa số sao"}
+                                        >
+                                          <Edit3 size={15} />
+                                        </button>
+
+                                        <button
+                                          onClick={() => deleteWord(item.id)}
+                                          className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-colors border border-transparent hover:border-red-100 dark:hover:border-red-800/50 max-h-[30px] flex items-center justify-center"
+                                          title="Xóa từ này"
+                                        >
+                                          <Trash2 size={16} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {/* Only show explain if explain is different from meaning, now full width */}
+                                    {showExplain && (
+                                      <div className="mt-2 p-2.5 bg-gray-50 dark:bg-gray-900/50 rounded-lg text-gray-700 dark:text-gray-400 text-sm border-l-2 border-gray-300 dark:border-gray-600 transition-colors w-full">
+                                        {explainText}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* 1 Ví dụ duy nhất */}
+                                  {examples.length > 0 && (() => {
+                                    const ex = examples[0];
+                                    const exContent = ex.content || ex.e;
+                                    const exPinyin = ex.pinyin || ex.p || '';
+                                    const exMean = ex.mean || ex.m || '';
+                                    const isExMetaVisible = !!showExampleMeta[item.id];
+                                    return (
+                                      <div className="bg-indigo-50/50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800/50 transition-colors">
+                                        <div className="flex items-center justify-between mb-0.5">
+                                          <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest block">Ví dụ:</span>
+                                          <button
+                                            onClick={() => setShowExampleMeta(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                            className="text-gray-400 hover:text-indigo-500 dark:text-gray-500 dark:hover:text-indigo-400 transition-colors"
+                                            title={isExMetaVisible ? "Ẩn pinyin và nghĩa ví dụ" : "Hiện pinyin và nghĩa ví dụ"}
+                                          >
+                                            {isExMetaVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                                          </button>
+                                        </div>
+                                        <div className="text-gray-800 dark:text-gray-200 font-medium text-sm flex items-start justify-between gap-3 transition-colors">
+                                          <div className="flex-1 min-w-0 flex items-start gap-1.5">
+                                            <span className="text-indigo-400 dark:text-indigo-500 select-none mt-0.5">•</span>
+                                            <div className="flex flex-col gap-0.5">
+                                              <span>{exContent}</span>
+                                              {isExMetaVisible && (exPinyin || exMean) && (
+                                                <div className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-normal italic flex flex-col gap-0.5 transition-colors">
+                                                  {exPinyin && <span>{exPinyin}</span>}
+                                                  {exMean && <span>{exMean}</span>}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <button onClick={(e) => { e.stopPropagation(); playAudio(exContent, ex.id, true); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-indigo-50/50 dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-indigo-100 dark:border-indigo-800/50 mt-0.5" title="Nghe câu ví dụ">
+                                            <Volume2 size={16} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                </>
+              )}
+            </div>
+          )
+        }
+
+      </main >
+
+      {/* FIXED FLOATING BUTTON FOR SEARCH */}
+      {
+        activeTab !== 'review' && activeTab !== 'flashcard' && (
+          <button
+            onClick={() => setIsSearchOpen(true)}
+            className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 w-16 h-16 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 z-[150] animate-in slide-in-from-bottom flex justify-center items-center"
+            title="Mở bảng tra từ"
+          >
+            <Search size={28} strokeWidth={2.5} />
+          </button>
+        )
+      }
+
+    </div >
   );
 }
 
