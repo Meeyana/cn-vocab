@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Loader2, Sparkles, Wand2, X, Check, Volume2, BookMarked, BrainCircuit, Gamepad2, Play, Pause, LibraryBig, LogOut, ChevronRight, Trophy, Link, Info, RefreshCw, Eye, EyeOff, BookOpen, Sun, Moon, Star, Trash2, Edit3, ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import CryptoJS from 'crypto-js';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -46,6 +46,7 @@ function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suppressSuggest, setSuppressSuggest] = useState(false); // Ngăn trigger API Suggest sau khi đã chọn kết quả
   const [expandedExamples, setExpandedExamples] = useState({}); // Quản lý trạng thái mở dropdown ví dụ
+  const voiceTracker = useRef({});
   const [showExampleMeta, setShowExampleMeta] = useState({}); // Quản lý trạng thái ẩn/hiện pinyin, nghĩa của ví dụ
   const [filterRating, setFilterRating] = useState('All'); // Bộ lọc cấp độ sao (All, 1,2,3,4,5)
   const [searchTermSaved, setSearchTermSaved] = useState(''); // Text search cục bộ trong thư viện
@@ -244,9 +245,33 @@ function App() {
     }
   };
 
-  // Phát âm (Sử dụng Web Speech API có sẵn của trình duyệt)
-  const playAudio = (text) => {
-    // Xóa hàng chờ đang phát cũ để tránh lỗi phát bị đúp/lặp lại
+  // Phát âm (Ưu tiên MP3 từ Hanzii nếu có ID, fallback Web Speech API)
+  const playAudio = (text, wordId = null, isExample = false) => {
+    if (wordId) {
+      try {
+        // Cắt bỏ phần hậu tố _x_y nếu wordId là ID ghép lúc lưu vào Sổ Tay
+        const cleanId = wordId.toString().split('_')[0];
+        const folder = isExample ? 'e_cnvi' : 'cnvi';
+
+        // Luân phiên giọng đọc 0 và 1 (Lưu state riêng theo cleanId)
+        const currentVoice = voiceTracker.current[cleanId] || 0;
+        const audioUrl = `https://audio.hanzii.net/audios/${folder}/${currentVoice}/${cleanId}.mp3`;
+        voiceTracker.current[cleanId] = currentVoice === 0 ? 1 : 0; // Đổi giọng cho lần bấm sau cho đúng ID này
+
+        const audio = new Audio(audioUrl);
+        audio.play().catch(err => {
+          console.warn("Không thể phát MP3, fallback Web Speech API", err);
+          fallbackTTS(text);
+        });
+        return;
+      } catch (e) {
+        console.warn("Lỗi tạo Audio, fallback Web Speech API", e);
+      }
+    }
+    fallbackTTS(text);
+  };
+
+  const fallbackTTS = (text) => {
     window.speechSynthesis.cancel();
     const msg = new SpeechSynthesisUtterance();
     msg.text = text;
@@ -426,7 +451,8 @@ function App() {
                     savedWords={savedWords} // Pass savedWords for checking specific meanings
                     suggestedWords={results.slice(1, 6)}
                     onSave={(itemToSave, contentBlock, meanObj, contentIdx, meanIdx) => saveWord(itemToSave, contentBlock, meanObj, contentIdx, meanIdx)}
-                    onPlay={() => playAudio(item.word)}
+                    onPlay={() => playAudio(item.word, item.id)}
+                    onPlayEx={(text, id) => playAudio(text, id, true)}
                     onSearchWord={handleSearchWord}
                   />
                 ))}
@@ -664,7 +690,7 @@ function App() {
 
                                 {/* Nút Nghe & Nút Xem thêm */}
                                 <div className="flex items-center gap-1">
-                                  <button onClick={() => playAudio(item.word)} className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors font-medium border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50" title="Nghe phát âm">
+                                  <button onClick={() => playAudio(item.word, item.originalId || item.id)} className="text-indigo-500 dark:text-indigo-400 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors font-medium border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800/50" title="Nghe phát âm">
                                     <Volume2 size={16} />
                                   </button>
                                   <button
@@ -735,17 +761,22 @@ function App() {
                                           {isExMetaVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                                         </button>
                                       </div>
-                                      <div className="text-gray-800 dark:text-gray-200 font-medium text-sm flex items-start gap-1.5 transition-colors">
-                                        <span className="text-indigo-400 dark:text-indigo-500 select-none mt-0.5">•</span>
-                                        <div className="flex flex-col gap-0.5">
-                                          <span>{exContent}</span>
-                                          {isExMetaVisible && (exPinyin || exMean) && (
-                                            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-normal italic flex flex-col gap-0.5 transition-colors">
-                                              {exPinyin && <span>{exPinyin}</span>}
-                                              {exMean && <span>{exMean}</span>}
-                                            </div>
-                                          )}
+                                      <div className="text-gray-800 dark:text-gray-200 font-medium text-sm flex items-start justify-between gap-3 transition-colors">
+                                        <div className="flex-1 min-w-0 flex items-start gap-1.5">
+                                          <span className="text-indigo-400 dark:text-indigo-500 select-none mt-0.5">•</span>
+                                          <div className="flex flex-col gap-0.5">
+                                            <span>{exContent}</span>
+                                            {isExMetaVisible && (exPinyin || exMean) && (
+                                              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400 font-normal italic flex flex-col gap-0.5 transition-colors">
+                                                {exPinyin && <span>{exPinyin}</span>}
+                                                {exMean && <span>{exMean}</span>}
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
+                                        <button onClick={(e) => { e.stopPropagation(); playAudio(exContent, ex.id, true); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-indigo-50/50 dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-indigo-100 dark:border-indigo-800/50 mt-0.5" title="Nghe câu ví dụ">
+                                          <Volume2 size={16} />
+                                        </button>
                                       </div>
                                     </div>
                                   );
@@ -772,7 +803,7 @@ function App() {
 // =========================================================================
 // COMPONENT THẺ TỪ VỰNG
 // =========================================================================
-function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onSearchWord }) {
+function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onPlayEx, onSearchWord }) {
   // Lấy định nghĩa đầu tiên làm chính
   const firstContent = item.content?.[0];
   const firstMean = firstContent?.means?.[0];
@@ -882,12 +913,19 @@ function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onSearchWo
                         const exMean = ex.mean || ex.m;
 
                         return (
-                          <div key={exIdx} className="text-sm pb-3 border-b border-gray-50 dark:border-gray-700 last:border-0 last:pb-0 transition-colors">
-                            <div className="text-gray-900 dark:text-gray-100 font-medium text-base mb-1 transition-colors">{exContent}</div>
-                            {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
-                            <div className="text-teal-800 dark:text-teal-300 italic border-l-2 border-teal-300 dark:border-teal-700/50 pl-3 bg-teal-50/50 dark:bg-teal-900/20 py-1.5 px-2 rounded-r transition-colors">
-                              {exMean}
+                          <div key={exIdx} className="text-sm pb-3 border-b border-gray-50 dark:border-gray-700 last:border-0 last:pb-0 transition-colors flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-gray-900 dark:text-gray-100 font-medium text-base mb-1 transition-colors">{exContent}</div>
+                              {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
+                              <div className="text-teal-800 dark:text-teal-300 italic border-l-2 border-teal-300 dark:border-teal-700/50 pl-3 bg-teal-50/50 dark:bg-teal-900/20 py-1.5 px-2 rounded-r transition-colors">
+                                {exMean}
+                              </div>
                             </div>
+                            {onPlayEx && (
+                              <button onClick={(e) => { e.stopPropagation(); onPlayEx(exContent, ex.id); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-gray-50 dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-gray-100 dark:border-gray-700 mt-0.5" title="Nghe câu ví dụ">
+                                <Volume2 size={16} />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -931,12 +969,19 @@ function WordCard({ item, savedWords, suggestedWords, onSave, onPlay, onSearchWo
                             const exMean = ex.mean || ex.m;
 
                             return (
-                              <div key={exIdx} className="text-sm pb-2 border-b border-orange-100/50 dark:border-orange-900/30 last:border-0 last:pb-0 transition-colors">
-                                <div className="text-gray-900 dark:text-gray-100 font-medium mb-1 transition-colors">{exContent}</div>
-                                {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
-                                <div className="text-orange-900 dark:text-orange-200 italic transition-colors">
-                                  {exMean}
+                              <div key={exIdx} className="text-sm pb-2 border-b border-orange-100/50 dark:border-orange-900/30 last:border-0 last:pb-0 transition-colors flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-gray-900 dark:text-gray-100 font-medium mb-1 transition-colors">{exContent}</div>
+                                  {exPinyin && <div className="text-gray-500 dark:text-gray-400 mb-1 font-mono text-xs transition-colors">{exPinyin}</div>}
+                                  <div className="text-orange-900 dark:text-orange-200 italic transition-colors">
+                                    {exMean}
+                                  </div>
                                 </div>
+                                {onPlayEx && (
+                                  <button onClick={(e) => { e.stopPropagation(); onPlayEx(exContent, ex.id); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-gray-50 dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-orange-100 dark:border-orange-800/50 mt-0.5" title="Nghe câu ví dụ">
+                                    <Volume2 size={16} />
+                                  </button>
+                                )}
                               </div>
                             );
                           })}
@@ -1225,7 +1270,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
 
       if (type === 1 || type === 2) {
         if (hasStarted) {
-          setTimeout(() => playAudio(word.word), 300);
+          setTimeout(() => playAudio(word.word, word.originalId || word.id), 300);
         }
       }
     } catch (err) {
@@ -1238,7 +1283,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
   // Kích hoạt loa đọc lại câu 1 nếu lúc auto-generate chưa đc allow play vì !hasStarted
   useEffect(() => {
     if (hasStarted && currentQuestion && (currentQuestion.type === 1 || currentQuestion.type === 2)) {
-      setTimeout(() => playAudio(currentQuestion.wordObj.word), 300);
+      setTimeout(() => playAudio(currentQuestion.wordObj.word, currentQuestion.wordObj.originalId || currentQuestion.wordObj.id), 300);
     }
   }, [hasStarted]);
 
@@ -1315,7 +1360,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
     if (isCorrect) {
       setFeedback('correct');
       setShowResult(true);
-      playAudio(currentQuestion.wordObj.word); // Phát âm ngay lập tức
+      playAudio(currentQuestion.wordObj.word, currentQuestion.wordObj.originalId || currentQuestion.wordObj.id); // Phát âm ngay lập tức
 
       if (!mistakes[wordId] && currentQuestion.wordObj.rating < 5) {
         // Cache update
@@ -1338,7 +1383,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
       }
 
       setShowResult(true);
-      playAudio(currentQuestion.wordObj.word); // Phát âm ngay lập tức
+      playAudio(currentQuestion.wordObj.word, currentQuestion.wordObj.originalId || currentQuestion.wordObj.id); // Phát âm ngay lập tức
     }
   };
 
@@ -1482,7 +1527,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
           {type === 1 && (
             <div>
               <div className="text-xs font-bold text-purple-500 dark:text-purple-400 uppercase tracking-wider mb-6 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800/50 py-1.5 px-3 rounded-full inline-block transition-colors">Nghe và chọn Hán tự</div>
-              <button onClick={() => playAudio(wordObj.word)} className="bg-purple-100 dark:bg-purple-900/40 w-24 h-24 rounded-full flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50 hover:bg-purple-200 dark:hover:bg-purple-900/60 transition-colors shadow-inner mx-auto group">
+              <button onClick={() => playAudio(wordObj.word, wordObj.originalId || wordObj.id)} className="bg-purple-100 dark:bg-purple-900/40 w-24 h-24 rounded-full flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/50 hover:bg-purple-200 dark:hover:bg-purple-900/60 transition-colors shadow-inner mx-auto group">
                 <Volume2 size={40} className="group-hover:scale-110 transition-transform" />
               </button>
             </div>
@@ -1494,7 +1539,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                 Dịch nghĩa Tiếng Việt
               </div>
               <h2 className="text-5xl md:text-6xl font-black text-gray-900 dark:text-gray-100 mb-4 drop-shadow-sm transition-colors">{wordObj.word}</h2>
-              <button onClick={() => playAudio(wordObj.word)} className="text-gray-400 dark:text-gray-500 hover:text-orange-500 dark:hover:text-orange-400 flex items-center gap-1.5 mx-auto text-sm font-medium bg-gray-50 dark:bg-gray-900/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800 transition-colors">
+              <button onClick={() => playAudio(wordObj.word, wordObj.originalId || wordObj.id)} className="text-gray-400 dark:text-gray-500 hover:text-orange-500 dark:hover:text-orange-400 flex items-center gap-1.5 mx-auto text-sm font-medium bg-gray-50 dark:bg-gray-900/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800 transition-colors">
                 <Volume2 size={16} /> Nghe lại
               </button>
             </div>
@@ -1514,7 +1559,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                 </div>
               )}
               <button
-                onClick={() => playAudio(wordObj.word)}
+                onClick={() => playAudio(wordObj.word, wordObj.originalId || wordObj.id)}
                 className={`text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 flex items-center gap-1.5 mx-auto text-sm font-medium bg-gray-50 dark:bg-gray-900/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800 transition-colors ${!showResult ? 'mb-2' : ''}`}
               >
                 <Volume2 size={16} /> Nghe phát âm
@@ -1618,7 +1663,7 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                   <span className="text-lg font-medium text-indigo-600 dark:text-indigo-400 transition-colors">
                     [{wordObj.pinyin || wordObj.zhuyin}] {reviewWordKind ? `(${reviewWordKind})` : ''}
                   </span>
-                  <button onClick={() => playAudio(wordObj.word)} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border border-gray-200 dark:border-gray-700 rounded-full p-1.5 bg-white dark:bg-gray-800 shadow-sm"><Volume2 size={16} /></button>
+                  <button onClick={() => playAudio(wordObj.word, wordObj.originalId || wordObj.id)} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border border-gray-200 dark:border-gray-700 rounded-full p-1.5 bg-white dark:bg-gray-800 shadow-sm"><Volume2 size={16} /></button>
                 </div>
 
                 <div className="font-semibold text-lg text-gray-900 dark:text-gray-100 transition-colors">
@@ -1642,17 +1687,22 @@ function ReviewScreen({ savedWords, updateRating, playAudio, setActiveTab }) {
                   const ex = examplesList[randomExIndex];
 
                   return (
-                    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors">
-                      <div className="flex gap-2 text-gray-700 dark:text-gray-300 transition-colors">
-                        <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
-                        <div>
-                          <div className="font-medium text-[15px] leading-relaxed">
-                            {ex.content || ex.e}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">
-                            {ex.mean || ex.m}
+                    <div className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2 transition-colors flex flex-col">
+                      <div className="flex flex-1 items-start justify-between gap-3 text-gray-700 dark:text-gray-300 transition-colors">
+                        <div className="flex gap-2 flex-1 min-w-0">
+                          <span className="text-blue-500 dark:text-blue-400 mt-1 transition-colors">•</span>
+                          <div>
+                            <div className="font-medium text-[15px] leading-relaxed">
+                              {ex.content || ex.e}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400 italic mt-0.5 transition-colors">
+                              {ex.mean || ex.m}
+                            </div>
                           </div>
                         </div>
+                        <button onClick={(e) => { e.stopPropagation(); playAudio(ex.content || ex.e, ex.id, true); }} className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-1.5 rounded-full bg-gray-50 dark:bg-gray-900 shrink-0 transition-colors shadow-sm border border-gray-100 dark:border-gray-800 mt-0.5" title="Nghe câu ví dụ">
+                          <Volume2 size={16} />
+                        </button>
                       </div>
                     </div>
                   );
@@ -1749,7 +1799,11 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
   };
 
   // Nút Chưa Thuộc (Sai)
-  const handleForget = async () => {
+  const handleForget = async (e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     if (!currentCard) return;
     const wordId = currentCard.id;
 
@@ -1783,7 +1837,11 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
   };
 
   // Nút Đã Thuộc (Đúng)
-  const handleRemember = async () => {
+  const handleRemember = async (e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     if (!currentCard) return;
     const wordId = currentCard.id;
 
@@ -1947,7 +2005,7 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
             className={`absolute inset-0 w-full h-full border-2 border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-3xl shadow-xl flex flex-col items-center justify-center transition-all duration-500 ease-in-out z-20 ${isFlipped ? 'opacity-0 my-rotate-y-180 pointer-events-none scale-95' : 'opacity-100 transform-none scale-100'}`}
           >
             <button
-              onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word); }}
+              onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word, currentCard.originalId || currentCard.id); }}
               className="absolute top-4 right-4 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-2 rounded-full bg-gray-50 dark:bg-gray-900/50 transition-colors shadow-sm"
             >
               <Volume2 size={24} />
@@ -1966,7 +2024,7 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
                   <p className="text-xl font-medium text-indigo-600 dark:text-indigo-400">[{currentCard.pinyin || currentCard.zhuyin}] {reviewWordKind ? `(${reviewWordKind})` : ''}</p>
                 </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word); }}
+                  onClick={(e) => { e.stopPropagation(); playAudio(currentCard.word, currentCard.originalId || currentCard.id); }}
                   className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-2 rounded-full bg-white dark:bg-gray-900/50 transition-colors shadow-sm"
                 >
                   <Volume2 size={22} />
@@ -1985,11 +2043,21 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
                     <div className="space-y-3">
                       {examplesList.slice(0, 3).map((ex, idx) => {
                         const pinyinTxt = ex.pinyin || ex.p;
+                        const sentenceText = ex.content || ex.e;
                         return (
-                          <div key={idx} className="bg-white/60 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700 transition-colors">
-                            <p className="text-gray-900 dark:text-gray-200 font-bold text-sm leading-relaxed">{ex.content || ex.e}</p>
-                            {pinyinTxt && <p className="text-indigo-600 dark:text-indigo-400 text-xs font-medium my-1">[{pinyinTxt}]</p>}
-                            <p className="text-gray-500 dark:text-gray-400 text-xs italic">{ex.mean || ex.m}</p>
+                          <div key={idx} className="bg-white/60 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-100 dark:border-gray-700 transition-colors flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-gray-900 dark:text-gray-200 font-bold text-sm leading-relaxed">{sentenceText}</p>
+                              {pinyinTxt && <p className="text-indigo-600 dark:text-indigo-400 text-xs font-medium my-1">[{pinyinTxt}]</p>}
+                              <p className="text-gray-500 dark:text-gray-400 text-xs italic">{ex.mean || ex.m}</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); playAudio(sentenceText, ex.id, true); }}
+                              className="text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 p-2 rounded-full bg-white dark:bg-gray-800 shrink-0 transition-colors shadow-sm border border-gray-100 dark:border-gray-700 mt-1"
+                              title="Nghe ví dụ"
+                            >
+                              <Volume2 size={16} />
+                            </button>
                           </div>
                         );
                       })}
@@ -2014,7 +2082,7 @@ function FlashcardScreen({ savedWords, updateRating, playAudio, setActiveTab }) 
       </div>
 
       {/* Controls */}
-      <div className="grid grid-cols-2 gap-4 transition-all duration-300 shrink-0">
+      <div className="grid grid-cols-2 gap-4 transition-all duration-300 shrink-0 relative z-50">
         <button
           onClick={handleForget}
           className="bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 dark:text-red-400 font-bold py-4 px-6 rounded-2xl shadow-lg border-2 border-red-100 dark:border-red-900/30 transition-all hover:scale-[1.02] flex flex-col items-center justify-center gap-1"
