@@ -51,6 +51,8 @@ export default {
         // 2. API TÌM KIẾM CHÍNH (MẶC ĐỊNH)
         // ==========================================
         const word = url.searchParams.get("word");
+        const type = url.searchParams.get("type") || "word";
+
         if (!word) {
             return new Response(JSON.stringify({ error: "Missing 'word' parameter" }), {
                 status: 400,
@@ -59,7 +61,7 @@ export default {
         }
 
         const encodedWord = encodeURIComponent(word);
-        const hanziiUrl = `https://api.hanzii.net/api/v3/search/vi/${encodedWord}?type=word&page=1&limit=24`;
+        const hanziiUrl = `https://api.hanzii.net/api/v3/search/vi/${encodedWord}?type=${type}&page=1&limit=24`;
 
         try {
             const response = await fetch(hanziiUrl, {
