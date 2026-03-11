@@ -61,6 +61,18 @@ function App() {
     setVisibleCount(20);
   }, [activeTab, filterRating, searchTermSaved]);
 
+  // Lock body scroll khi mở search modal
+  useEffect(() => {
+    if (isSearchOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isSearchOpen]);
+
   const toggleGrammar = (id) => {
     setExpandedGrammarIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -258,14 +270,21 @@ function App() {
 
           const grammarData = JSON.parse(rawText);
           if (grammarData && grammarData.result) {
-            // Chỉ lấy các item có level là A1-C2 và sắp xếp theo bậc
+            // Chỉ lấy các item có level là A1-C2 và chứa từ khóa đang xét
             const validLevels = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'B1', 'B2', 'C1', 'C2'];
-            const levelSortOrder = { 'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6 };
-            const filteredGrammar = grammarData.result
-              .filter(item => validLevels.includes(item.level))
-              .sort((a, b) => (levelSortOrder[a.level] || 99) - (levelSortOrder[b.level] || 99));
+            const searchStr = searchTerm.toLowerCase();
+            
+            const filteredGrammar = grammarData.result.filter(item => {
+              if (!validLevels.includes(item.level)) return false;
+              
+              const titleStr = item.title ? item.title.toLowerCase() : "";
+              const keywordStr = item.keywords ? item.keywords.toLowerCase() : "";
+              
+              return titleStr.includes(searchStr) || keywordStr.includes(searchStr);
+            });
+            
             setGrammarResults(filteredGrammar);
-            console.log("Filtered & Sorted Grammar results:", filteredGrammar);
+            console.log("Filtered Grammar results:", filteredGrammar);
           }
         } catch (gErr) {
           console.error("Lỗi parse JSON ngữ pháp", gErr);
@@ -518,7 +537,7 @@ function App() {
                 )}
 
                 {!isGrammarLoading && grammarResults.length > 0 && (
-                  <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-800">
+                  <div className="mt-8 pt-8 pb-12 border-t border-gray-200 dark:border-gray-800">
                     <h4 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
                       <BookOpen className="text-indigo-500" size={20} />
                       Ngữ pháp liên quan
