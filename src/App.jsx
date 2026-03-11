@@ -808,17 +808,13 @@ function App() {
       </main >
 
       {/* FIXED FLOATING BUTTON FOR SEARCH */}
-      {
-        activeTab !== 'review' && activeTab !== 'flashcard' && (
-          <button
-            onClick={() => setIsSearchOpen(true)}
-            className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 w-16 h-16 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 z-[150] animate-in slide-in-from-bottom flex justify-center items-center"
-            title="Mở bảng tra từ"
-          >
-            <Search size={28} strokeWidth={2.5} />
-          </button>
-        )
-      }
+      <button
+        onClick={() => setIsSearchOpen(true)}
+        className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 w-16 h-16 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 z-[150] animate-in slide-in-from-bottom flex justify-center items-center"
+        title="Mở bảng tra từ"
+      >
+        <Search size={28} strokeWidth={2.5} />
+      </button>
 
     </div >
   );
