@@ -49,6 +49,7 @@ function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suppressSuggest, setSuppressSuggest] = useState(false); // Ngăn trigger API Suggest sau khi đã chọn kết quả
   const [expandedExamples, setExpandedExamples] = useState({}); // Quản lý trạng thái mở dropdown ví dụ
+  const [expandedGrammarIds, setExpandedGrammarIds] = useState({}); // Quản lý trạng thái mở accordion ngữ pháp
   const voiceTracker = useRef({});
   const [showExampleMeta, setShowExampleMeta] = useState({}); // Quản lý trạng thái ẩn/hiện pinyin, nghĩa của ví dụ
   const [filterRating, setFilterRating] = useState('All'); // Bộ lọc cấp độ sao (All, 1,2,3,4,5)
@@ -60,6 +61,9 @@ function App() {
     setVisibleCount(20);
   }, [activeTab, filterRating, searchTermSaved]);
 
+  const toggleGrammar = (id) => {
+    setExpandedGrammarIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
   // Infinite Scroll logic
   useEffect(() => {
     if (activeTab !== 'saved') return;
@@ -254,11 +258,14 @@ function App() {
 
           const grammarData = JSON.parse(rawText);
           if (grammarData && grammarData.result) {
-            // Chỉ lấy các item có level là A1-A6
-            const validLevels = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'];
-            const filteredGrammar = grammarData.result.filter(item => validLevels.includes(item.level));
+            // Chỉ lấy các item có level là A1-C2 và sắp xếp theo bậc
+            const validLevels = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'B1', 'B2', 'C1', 'C2'];
+            const levelSortOrder = { 'A1': 1, 'A2': 2, 'B1': 3, 'B2': 4, 'C1': 5, 'C2': 6 };
+            const filteredGrammar = grammarData.result
+              .filter(item => validLevels.includes(item.level))
+              .sort((a, b) => (levelSortOrder[a.level] || 99) - (levelSortOrder[b.level] || 99));
             setGrammarResults(filteredGrammar);
-            console.log("Filtered Grammar results:", filteredGrammar);
+            console.log("Filtered & Sorted Grammar results:", filteredGrammar);
           }
         } catch (gErr) {
           console.error("Lỗi parse JSON ngữ pháp", gErr);
@@ -518,34 +525,52 @@ function App() {
                     </h4>
 
                     <div className="space-y-4">
-                      {grammarResults.map((item, index) => (
-                        <div key={item.id || index} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group">
-                          <div className="flex flex-wrap items-center gap-3 mb-3">
-                            <span className="text-lg font-bold text-indigo-700 dark:text-indigo-400">{item.title}</span>
-                            {item.level && (
-                              <span className="px-2.5 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400 text-xs font-bold rounded-lg uppercase border border-yellow-200 dark:border-yellow-800/50">
-                                {item.level}
-                              </span>
+                      {grammarResults.map((item, index) => {
+                        const levelMap = { 'A1': 'HSK 1', 'A2': 'HSK 2', 'B1': 'HSK 3', 'B2': 'HSK 4', 'C1': 'HSK 5', 'C2': 'HSK 6' };
+                        const displayLevel = levelMap[item.level] || item.level;
+                        const itemKey = item.id || index;
+                        const isExpanded = expandedGrammarIds[itemKey];
+
+                        return (
+                          <div key={itemKey} className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group overflow-hidden">
+                            <button
+                              onClick={() => toggleGrammar(itemKey)}
+                              className="w-full text-left p-5 flex items-center justify-between outline-none"
+                            >
+                              <div className="flex flex-col gap-2">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <span className="text-lg font-bold text-indigo-700 dark:text-indigo-400">{item.title}</span>
+                                  {item.level && (
+                                    <span className="px-2.5 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400 text-xs font-bold rounded-lg uppercase border border-yellow-200 dark:border-yellow-800/50">
+                                      {displayLevel}
+                                    </span>
+                                  )}
+                                </div>
+                                {item.use_for && (
+                                  <div className="text-indigo-600 dark:text-indigo-400 font-medium text-sm">
+                                    Sử dụng: {item.use_for}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-gray-400 ml-4 flex-shrink-0">
+                                {isExpanded ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
+                              </div>
+                            </button>
+
+                            {isExpanded && item.contents && Array.isArray(item.contents) && item.contents.length > 0 && (
+                              <div className="p-5 pt-0 border-t border-gray-100 dark:border-gray-700 mt-2 bg-indigo-50/20 dark:bg-gray-900/20">
+                                <div className="space-y-3 mt-4">
+                                  {item.contents.map((contentLine, lineIdx) => (
+                                    <div key={lineIdx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                                      {contentLine}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </div>
-
-                          {item.use_for && (
-                            <div className="text-indigo-600 dark:text-indigo-400 font-medium mb-3">
-                              Sử dụng: {item.use_for}
-                            </div>
-                          )}
-
-                          {item.contents && Array.isArray(item.contents) && item.contents.length > 0 && (
-                            <div className="bg-indigo-50/50 dark:bg-gray-900/50 rounded-xl p-4 mt-4 space-y-2">
-                              {item.contents.map((contentLine, lineIdx) => (
-                                <div key={lineIdx} className="text-sm text-gray-700 dark:text-gray-300">
-                                  {contentLine}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

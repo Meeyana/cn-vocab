@@ -64,11 +64,12 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        // 1. GỌI QUA CLOUDFLARE WORKER (PROXY TRUNG GIAN DÙNG ĐỂ FAKE IP) VỚI type=grammar
         const encodedWord = encodeURIComponent(word);
-        const cloudflareUrl = `https://hanzii-proxy.tuanphan1112-working.workers.dev/?word=${encodedWord}&type=grammar`;
+        // Bỏ qua Cloudflare Proxy vì proxy không nhận diện tham số type=grammar
+        // Gọi thẳng vào API của Hanzii
+        const hanziiUrl = `https://api.hanzii.net/api/v3/search/vi/${encodedWord}?type=grammar&page=1&limit=24`;
 
-        const response = await axios.get(cloudflareUrl, {
+        const response = await axios.get(hanziiUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
             }
