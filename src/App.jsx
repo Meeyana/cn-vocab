@@ -34,8 +34,10 @@ function App() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState([]);
+  const [grammarResults, setGrammarResults] = useState([]); // Kết quả ngữ pháp
   const [savedWords, setSavedWords] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGrammarLoading, setIsGrammarLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('saved'); // 'saved' | 'review' | 'flashcard'
   const [isSearchOpen, setIsSearchOpen] = useState(false); // Modal state
   const [editingRatingId, setEditingRatingId] = useState(null); // Trạng thái chỉnh sửa số sao
@@ -216,33 +218,59 @@ function App() {
     if (!searchTerm.trim()) return;
 
     setIsLoading(true);
+    setIsGrammarLoading(true);
     setResults([]);
+    setGrammarResults([]);
 
     try {
-      // SỬA TẠI ĐÂY: Thay 'http://localhost:3000/api/search' bằng '/api/search'
-      // Nhờ file netlify.toml, Netlify sẽ tự điều hướng /api/search về Function của bạn
-      const response = await fetch(`/api/search?word=${encodeURIComponent(searchTerm)}`);
+      // Chạy 2 lệnh fetch song song
+      const [wordResponse, grammarResponse] = await Promise.all([
+        fetch(`/api/search?word=${encodeURIComponent(searchTerm)}`),
+        fetch(`/api/grammar?word=${encodeURIComponent(searchTerm)}`).catch(err => {
+          console.warn("Lỗi fetch grammar", err);
+          return { ok: false };
+        }) // Dùng catch ở đây để search chính không bị crash nếu ngữ pháp lỗi
+      ]);
 
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
+      if (!wordResponse.ok) {
+        throw new Error(`Error: ${wordResponse.status}`);
       }
 
-      const data = await response.json();
+      const wordData = await wordResponse.json();
+      console.log("Hanzii API Full Response:", wordData);
 
-      console.log("Hanzii API Full Response:", data);
-
-      if (data && data.result) {
-        setResults(data.result);
+      if (wordData && wordData.result) {
+        setResults(wordData.result);
       } else {
         setResults([]);
-        console.warn("Không tìm thấy kết quả hợp lệ từ backend", data);
+        console.warn("Không tìm thấy kết quả hợp lệ từ backend", wordData);
       }
+
+      // -- XỬ LÝ NGỮ PHÁP --
+      if (grammarResponse && grammarResponse.ok) {
+        try {
+          const rawText = await grammarResponse.text();
+          console.log("Raw Grammar Response:", rawText.slice(0, 500)); // Log 500 ký tự đầu tiên
+
+          const grammarData = JSON.parse(rawText);
+          if (grammarData && grammarData.result) {
+            // Chỉ lấy các item có level là A1-A6
+            const validLevels = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'];
+            const filteredGrammar = grammarData.result.filter(item => validLevels.includes(item.level));
+            setGrammarResults(filteredGrammar);
+            console.log("Filtered Grammar results:", filteredGrammar);
+          }
+        } catch (gErr) {
+          console.error("Lỗi parse JSON ngữ pháp", gErr);
+        }
+      }
+
     } catch (error) {
       console.error("Lỗi gọi API:", error);
-      // CẬP NHẬT THÔNG BÁO: Không còn nhắc đến Port 3000 nữa
       alert("Lỗi khi tìm kiếm, vui lòng kiểm tra kết nối mạng hoặc cấu hình Netlify Functions.");
     } finally {
       setIsLoading(false);
+      setIsGrammarLoading(false);
     }
   };
 
@@ -472,6 +500,53 @@ function App() {
                 {!isLoading && results.length === 0 && searchTerm && (
                   <div className="text-center py-12 text-gray-500">
                     Không tìm thấy kết quả cho "{searchTerm}". Thử tra "kết hôn" hoặc "结婚" xem sao nhé.
+                  </div>
+                )}
+
+                {/* --- NGỮ PHÁP LIÊN QUAN --- */}
+                {isGrammarLoading && (
+                  <div className="flex justify-center items-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-4 border-indigo-500 border-t-transparent"></div>
+                  </div>
+                )}
+
+                {!isGrammarLoading && grammarResults.length > 0 && (
+                  <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-800">
+                    <h4 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-6 flex items-center gap-2">
+                      <BookOpen className="text-indigo-500" size={20} />
+                      Ngữ pháp liên quan
+                    </h4>
+
+                    <div className="space-y-4">
+                      {grammarResults.map((item, index) => (
+                        <div key={item.id || index} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors group">
+                          <div className="flex flex-wrap items-center gap-3 mb-3">
+                            <span className="text-lg font-bold text-indigo-700 dark:text-indigo-400">{item.title}</span>
+                            {item.level && (
+                              <span className="px-2.5 py-1 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400 text-xs font-bold rounded-lg uppercase border border-yellow-200 dark:border-yellow-800/50">
+                                {item.level}
+                              </span>
+                            )}
+                          </div>
+
+                          {item.use_for && (
+                            <div className="text-indigo-600 dark:text-indigo-400 font-medium mb-3">
+                              Sử dụng: {item.use_for}
+                            </div>
+                          )}
+
+                          {item.contents && Array.isArray(item.contents) && item.contents.length > 0 && (
+                            <div className="bg-indigo-50/50 dark:bg-gray-900/50 rounded-xl p-4 mt-4 space-y-2">
+                              {item.contents.map((contentLine, lineIdx) => (
+                                <div key={lineIdx} className="text-sm text-gray-700 dark:text-gray-300">
+                                  {contentLine}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

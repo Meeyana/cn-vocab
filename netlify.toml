@@ -18,3 +18,9 @@
   from = "/api/suggest"
   to = "/.netlify/functions/suggest"
   status = 200
+
+# Điều hướng /api/grammar về function grammar.cjs
+[[redirects]]
+  from = "/api/grammar"
+  to = "/.netlify/functions/grammar"
+  status = 200
